@@ -6,6 +6,7 @@
 #include "AppConfig.h"
 #include "Telemetry.h"
 #include "Timebase.h"
+#include "devices/IoExpander.h"
 #include "devices/MotorController.h"
 #include "devices/ProparAsciiClient.h"
 #include "sensors/AnalogD6FSensor.h"
@@ -19,6 +20,7 @@ HardwareSerial Flow1Serial(2);
 HardwareSerial Flow2Serial(0);
 
 Telemetry telemetry;
+IoExpander ioExpander;
 MotorController motor(TmcSerial);
 ProparAsciiClient flow1(Flow1Serial, "flow1");
 ProparAsciiClient flow2(Flow2Serial, "flow2");
@@ -187,6 +189,15 @@ void setup() {
 
   Wire.begin(Pins::kI2cSda, Pins::kI2cScl);
   SPI.begin(Pins::kSpiSck, Pins::kSpiMiso, Pins::kSpiMosi);
+
+  const bool ioExpanderOk = ioExpander.begin(Wire);
+  publishStatus("io_expander", ioExpanderOk ? "begin_ok" : "begin_failed");
+  if (ioExpanderOk) {
+    const bool microstepsOk = ioExpander.setMotorMicrosteps(Config::kMicrosteps);
+    publishStatus("io_expander", microstepsOk ? "motor_microsteps_ok" : "motor_microsteps_invalid");
+  } else {
+    publishStatus("motor", "microstep_pins_unverified", "mcp23017_missing");
+  }
 
   motor.begin();
   flow1.begin(Config::kFlowBaud, Pins::kFlow1Rx, Pins::kFlow1Tx);

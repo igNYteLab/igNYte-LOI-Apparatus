@@ -27,6 +27,11 @@ constexpr uint8_t kFlow2Tx = 37;  // D1
 constexpr uint8_t kFlow2Rx = 38;  // D0
 }  // namespace Pins
 
+namespace ExpanderPins {
+constexpr uint8_t kMotorMs2 = 0;  // MCP23017 GPA0 / A0
+constexpr uint8_t kMotorMs1 = 1;  // MCP23017 GPA1 / A1
+}  // namespace ExpanderPins
+
 namespace Addresses {
 constexpr uint8_t kBme688 = 0x77;
 constexpr uint8_t kMcp23017 = 0x20;

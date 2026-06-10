@@ -54,15 +54,17 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 ### TMC2209 Microstep Source: UART Vs MS1/MS2
 
-**Risk:** firmware assumes `Config::kMicrosteps = 16`, but the driver board also has MS1/MS2 connected to an MCP23017 I/O expander.
+**Risk:** firmware assumes `Config::kMicrosteps = 16`, and MS1/MS2 must match that setting.
 
 **Current hardware:** MCP23017 address `0x20`; MS1 = GPA1/A1, MS2 = GPA0/A0. Address can change via jumper pads.
 
-**Why it matters:** if UART config fails or has not run yet, hardware may use MS1/MS2 fallback state instead of the firmware's assumed microstep setting.
+**Current code:** `IoExpander` sets MS1/MS2 from `Config::kMicrosteps`; for 1/16, both are driven high before `motor.begin()`.
+
+**Remaining risk:** if the MCP23017 is missing or UART config fails, the driver may use an unexpected fallback microstep mode.
 
 **Test:** verify TMC2209 UART config succeeds and read back microstep setting before trusting mm movement.
 
-**Mitigation:** either set MS1/MS2 through the MCP23017 to match the desired mode, or document their boot/default state as the fallback.
+**Mitigation:** missing MCP23017 is warning-only for now; verify expander status in boot JSON before motor testing.
 
 ## Medium Priority
 

@@ -28,6 +28,7 @@ The current active bring-up path is PlatformIO/Arduino because it is quicker to 
 - app logic is in `main.cpp`
 - central hardware constants are in `AppConfig.h`
 - each sensor has a small wrapper class
+- MCP23017 I/O expander setup has an `IoExpander` wrapper
 - motor control has a `MotorController` wrapper
 - Bronkhorst ProPar has a `ProparAsciiClient` wrapper
 - telemetry output is centralized in `Telemetry`
@@ -136,6 +137,7 @@ The current PlatformIO project uses libraries:
 - `Adafruit MAX31856 library`: thermocouple reads
 - `Adafruit SHT4x Library`: SHT45 reads
 - `Adafruit BME680 Library`: BME688 reads
+- `Adafruit MCP23017 Arduino Library`: MCP23017 I/O expander control
 
 These dependencies are declared in `firmware/p4-sensor-hub-arduino/platformio.ini`.
 
@@ -256,6 +258,7 @@ Current design:
 
 - `TMCStepper` configures the TMC2209 over UART.
 - `AccelStepper` generates STEP/DIR pulses in software.
+- `IoExpander` sets the TMC2209 MS1/MS2 pins through an MCP23017 before motor setup.
 - `MotorController` wraps both libraries and exposes apparatus-specific commands.
 
 This separation matters:
@@ -274,6 +277,15 @@ Current mechanical assumptions:
 | Steps/mm | 1600 |
 | Max speed | 8 mm/s |
 | Max acceleration | 20 mm/s^2 |
+
+MS1/MS2 are also connected to an MCP23017 on the I2C bus. Current mapping:
+
+| Signal | MCP23017 pin |
+| --- | --- |
+| MS2 | GPA0 / A0 |
+| MS1 | GPA1 / A1 |
+
+The MCP23017 address is currently `0x20`, configurable by jumper pads and stored in `Addresses::kMcp23017`. At boot, firmware sets MS1/MS2 from `Config::kMicrosteps`; for the current `16` microstep setting, both MS1 and MS2 are driven high. The firmware also configures microsteps over TMC2209 UART so the physical pins and UART setting should agree.
 
 The expected stage is a vertical FUYU-style NEMA14 screw stage with a 2 mm lead. The endstop is currently assumed to be a bottom/home switch, so home is position `0 mm` and upward travel is positive.
 
@@ -450,6 +462,6 @@ Key files:
 - `include/sensors/Bme688Sensor.h`, `src/sensors/Bme688Sensor.cpp`: BME688 wrapper
 - `include/sensors/AnalogD6FSensor.h`, `src/sensors/AnalogD6FSensor.cpp`: Omron D6F analog wrapper
 - `include/devices/MotorController.h`, `src/devices/MotorController.cpp`: TMC2209 and STEP/DIR stage wrapper
+- `include/devices/IoExpander.h`, `src/devices/IoExpander.cpp`: MCP23017 wrapper for motor MS1/MS2 setup
 - `include/devices/ProparAsciiClient.h`, `src/devices/ProparAsciiClient.cpp`: minimal Bronkhorst ASCII ProPar client
 - `src/main.cpp`: task creation, command parsing, sensor/flow/motor orchestration
-
