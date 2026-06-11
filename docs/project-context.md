@@ -49,12 +49,12 @@ xTaskCreate(flowTask, "flow", 6144, nullptr, 2, nullptr);
 Current task roles:
 
 - `motorTask`, priority 5: calls `motor.service()` frequently so STEP/DIR motion is not blocked by sensor or flow operations.
-- `commandTask`, priority 3: reads newline-delimited JSON commands from USB serial.
+- `commandTask`, priority 3: reads newline-delimited JSON commands from USB serial. Motor commands are validated and queued for `motorTask` instead of directly mutating motor state.
 - `sensorTask`, priority 2: polls sensors when their individual rates say they are due.
 - `flowTask`, priority 2: polls both Bronkhorst controllers periodically.
 - `loop()`: idle delay only.
 
-Important follow-up: motor state is currently touched by both `commandTask` and `motorTask`. This is acceptable for early bring-up, but a command queue should eventually be added so only `motorTask` mutates the stepper object.
+Motor ownership: `motorTask` owns `MotorController`. `commandTask` sends motor requests through a FreeRTOS queue with depth 8. This avoids simultaneous access to `AccelStepper` from multiple tasks.
 
 ## Pin Map
 
@@ -298,6 +298,8 @@ Current motor commands:
 {"cmd":"motor.stop"}
 {"cmd":"motor.home_here"}
 ```
+
+Motor commands are placed into a FreeRTOS queue and applied by `motorTask`. The current queue depth is 8. For flame tracking, a future latest-command mailbox may be better for target updates so the motor does not chase stale target positions.
 
 Important safety assumptions:
 

@@ -36,13 +36,15 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 **Mitigation:** keep CS pullups; avoid strapping pins in a future board revision if possible; treat Flow2 GPIO37/GPIO38 as the higher-risk strap/UART case.
 
-### Motor Safety / Task Ownership
+### Motor Command Queue Behavior
 
-**Risk:** `commandTask` and `motorTask` both touch motor state.
+**Current:** `commandTask` queues motor commands; `motorTask` owns `MotorController` and applies queued commands.
 
-**Likely fix:** motor command queue; only `motorTask` mutates `MotorController`.
+**Risk:** queue depth is 8, so rapid camera target updates could briefly queue stale targets.
 
-**Before motor testing:** add safe boot state, max travel, endstop test, homing routine, and `estop`.
+**Later:** consider a latest-command mailbox for target/velocity updates while preserving priority handling for `stop`/future `estop`.
+
+**Before motor testing:** still add safe boot state, max travel, endstop test, homing routine, and `estop`.
 
 ### TMC2209 Single-Wire UART
 
@@ -130,7 +132,9 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 **Watch for:** motor stutter, command lag, telemetry pauses.
 
-**Later:** use motor queue and consider timer/RMT step generation.
+**Current note:** `motorTask` uses `delayMicroseconds(200)` instead of `vTaskDelay()` so `AccelStepper` is serviced more often than the FreeRTOS tick. This improves step timing but can burn CPU.
+
+**Later:** use motor queue and consider hardware timer/RMT step generation.
 
 ### JSON / Heap Use
 

@@ -25,13 +25,13 @@ MotorController motor(TmcSerial);
 ProparAsciiClient flow1(Flow1Serial, "flow1");
 ProparAsciiClient flow2(Flow2Serial, "flow2");
 
-Max31856Sensor tc1("tc1", Pins::kChipSelects[0], 10);
-Max31856Sensor tc2("tc2", Pins::kChipSelects[1], 10);
-Max31856Sensor tc3("tc3", Pins::kChipSelects[2], 10);
-Max31856Sensor tc4("tc4", Pins::kChipSelects[3], 10);
-Sht45Sensor sht45("sht45", Wire, 2);
-Bme688Sensor bme688("bme688", Wire, 2, Addresses::kBme688);
-AnalogD6FSensor d6f("d6f_v03a1", Pins::kD6fAnalog, 50);
+Max31856Sensor tc1("tc1", Pins::kChipSelects[0], SensorRates::kTc);
+Max31856Sensor tc2("tc2", Pins::kChipSelects[1], SensorRates::kTc);
+Max31856Sensor tc3("tc3", Pins::kChipSelects[2], SensorRates::kTc);
+Max31856Sensor tc4("tc4", Pins::kChipSelects[3], SensorRates::kTc);
+Sht45Sensor sht45("sht45", Wire, SensorRates::kSht45);
+Bme688Sensor bme688("bme688", Wire, SensorRates::kBme688, Addresses::kBme688);
+AnalogD6FSensor d6f("d6f_v03a1", Pins::kD6fAnalog, SensorRates::kD6f);
 
 SensorBase* sensors[] = {
     &tc1,
@@ -45,6 +45,23 @@ SensorBase* sensors[] = {
 
 constexpr size_t kSensorCount = sizeof(sensors) / sizeof(sensors[0]);
 
+enum class MotorCommandType {
+  MoveSteps,
+  TargetMm,
+  VelocityMmS,
+  Stop,
+  HomeHere,
+};
+
+struct MotorCommand {
+  MotorCommandType type;
+  long steps = 0;
+  float value = 0.0f;
+};
+
+QueueHandle_t motorCommandQueue = nullptr;
+
+// function for publishing status messages to telemetry with a consistent format
 void publishStatus(const char* component, const char* status, const char* detail = nullptr) {
   JsonDocument doc;
   doc["type"] = "status";
@@ -57,6 +74,7 @@ void publishStatus(const char* component, const char* status, const char* detail
   telemetry.write(doc);
 }
 
+// helper function to find a sensor by name; returns nullptr if not found
 SensorBase* findSensor(const char* name) {
   for (SensorBase* sensor : sensors) {
     if (strcmp(sensor->name(), name) == 0) {
@@ -66,19 +84,69 @@ SensorBase* findSensor(const char* name) {
   return nullptr;
 }
 
+// helper function to queue a motor command; returns true if successful, false if the queue is full or missing
+bool queueMotorCommand(const MotorCommand& command) {
+  if (motorCommandQueue == nullptr) {
+    publishStatus("motor", "queue_missing");
+    return false;
+  }
+
+  if (xQueueSend(motorCommandQueue, &command, 0) != pdTRUE) {
+    publishStatus("motor", "queue_full");
+    return false;
+  }
+
+  publishStatus("motor", "command_queued");
+  return true;
+}
+
+// helper function to apply a motor command immediately; used by the motor task
+void applyMotorCommand(const MotorCommand& command) {
+  switch (command.type) {
+    case MotorCommandType::MoveSteps:
+      motor.moveToSteps(command.steps);
+      break;
+    case MotorCommandType::TargetMm:
+      motor.moveToMm(command.value);
+      break;
+    case MotorCommandType::VelocityMmS:
+      motor.setVelocityMmS(command.value);
+      break;
+    case MotorCommandType::Stop:
+      motor.stop();
+      break;
+    case MotorCommandType::HomeHere:
+      motor.homeHere();
+      break;
+  }
+}
+
+// function to handle incoming commands; expects a JSON document with a "cmd" field and other parameters as needed
 void handleCommand(JsonDocument& doc) {
   const char* cmd = doc["cmd"] | "";
 
   if (strcmp(cmd, "motor.move_steps") == 0) {
-    motor.moveToSteps(doc["steps"] | motor.positionSteps());
+    if (!doc["steps"].is<long>()) {
+      publishStatus("motor", "missing_field", "steps");
+      return;
+    }
+    queueMotorCommand({MotorCommandType::MoveSteps, doc["steps"].as<long>(), 0.0f});
   } else if (strcmp(cmd, "motor.target_mm") == 0) {
-    motor.moveToMm(doc["mm"] | motor.positionMm());
+    if (!doc["mm"].is<float>()) {
+      publishStatus("motor", "missing_field", "mm");
+      return;
+    }
+    queueMotorCommand({MotorCommandType::TargetMm, 0, doc["mm"].as<float>()});
   } else if (strcmp(cmd, "motor.velocity_mm_s") == 0) {
-    motor.setVelocityMmS(doc["mm_s"] | 0.0f);
+    if (!doc["mm_s"].is<float>()) {
+      publishStatus("motor", "missing_field", "mm_s");
+      return;
+    }
+    queueMotorCommand({MotorCommandType::VelocityMmS, 0, doc["mm_s"].as<float>()});
   } else if (strcmp(cmd, "motor.stop") == 0) {
-    motor.stop();
+    queueMotorCommand({MotorCommandType::Stop, 0, 0.0f});
   } else if (strcmp(cmd, "motor.home_here") == 0) {
-    motor.homeHere();
+    queueMotorCommand({MotorCommandType::HomeHere, 0, 0.0f});
   } else if (strcmp(cmd, "flow.set") == 0) {
     const uint8_t channel = doc["channel"] | 1;
     const float pct = constrain(doc["pct"] | 0.0f, 0.0f, 100.0f);
@@ -174,7 +242,15 @@ void flowTask(void*) {
 }
 
 void motorTask(void*) {
+  MotorCommand command;
+
   for (;;) {
+    if (motorCommandQueue != nullptr) {
+      while (xQueueReceive(motorCommandQueue, &command, 0) == pdTRUE) {
+        applyMotorCommand(command);
+      }
+    }
+
     motor.service();
     delayMicroseconds(200);
   }
@@ -186,6 +262,9 @@ void setup() {
 
   telemetry.begin();
   publishStatus("boot", "starting");
+
+  motorCommandQueue = xQueueCreate(8, sizeof(MotorCommand));
+  publishStatus("motor", motorCommandQueue != nullptr ? "queue_ok" : "queue_failed");
 
   Wire.begin(Pins::kI2cSda, Pins::kI2cScl);
   SPI.begin(Pins::kSpiSck, Pins::kSpiMiso, Pins::kSpiMosi);
