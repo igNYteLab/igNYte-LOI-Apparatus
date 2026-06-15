@@ -2,7 +2,7 @@
 #include "AppConfig.h"
 
 namespace {
-constexpr float kRsenseOhms = 0.11f;
+constexpr float kRsenseOhms = 0.05f; // from Adafruit schematic for TMC2209
 constexpr uint8_t kDriverAddress = 0b00;
 }  // namespace
 
