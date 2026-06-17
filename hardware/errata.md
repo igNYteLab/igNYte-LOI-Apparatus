@@ -40,3 +40,23 @@ Next hardware revision:
 - Add at least one easy-to-clip ground test point for oscilloscope or logic analyzer use.
 - Consider small GND header blocks near the sensor, motor, and auxiliary I/O areas.
 - Clearly label all ground access points on silkscreen.
+
+## FireBeetle Header Footprint Offset
+
+Current issue:
+
+- The FireBeetle board pin/header placement appears to be off by about 1 mm relative to the current PCB footprint.
+- This can make the module difficult to seat cleanly and may mechanically stress the headers or solder joints.
+
+Why it matters:
+
+- Misaligned headers can cause poor insertion, intermittent contact, bent pins, or long-term mechanical stress.
+- Bring-up measurements may be less reliable if the module is not fully seated.
+- Rework becomes harder because the module footprint is the central controller interface.
+
+Next hardware revision:
+
+- Recheck the FireBeetle 2 ESP32-P4 mechanical drawing against the PCB footprint.
+- Verify both header pitch and row-to-row spacing.
+- Print a 1:1 footprint check before ordering the next PCB.
+- If possible, test-fit the module footprint with headers before committing the next board revision.
