@@ -14,6 +14,88 @@ Why:
 Verification:
 ```
 
+## 2026-06-16 - Motor Bring-Up Safety And GPIO48 Direction Fix
+
+What changed:
+
+- Updated the TMC2209 sense resistor value in `MotorController.cpp` to `0.05 ohm`, matching the observed resistor marking / Adafruit TMC2209 schematic.
+- Reduced initial configured motor current to `300 mA RMS` for safer bring-up with the small NEMA 14 motor.
+- Updated `Config::kStepperFullStepsPerRev` from `200` to `400` for the 0.9 degree stepper motor.
+- Changed motor startup behavior so the driver remains disabled after boot/configuration.
+- Added motor state helpers for enabled state, velocity mode, endstop state, position in steps, and position in mm.
+- Added queued JSON commands:
+  - `motor.status`
+  - `motor.enable`
+  - `motor.disable`
+- Added periodic yielding in `motorTask` so the high-priority motor service loop does not starve setup or lower-priority tasks.
+- Added ESP32-P4 VO4 / VDD_IO_5 LDO build flags so GPIO39-GPIO48 are driven at 3.3 V. This fixed GPIO48 / DIR only reaching about 1.2 V.
+
+Why:
+
+Motor bring-up needed safer behavior before real motion. The previous firmware enabled the motor automatically at boot, assumed the wrong full-steps-per-rev value for the selected motor, and used GPIO48 without explicitly enabling the ESP32-P4 high-GPIO voltage domain. The high-priority motor task also prevented the final boot status and command task from running reliably.
+
+Verification:
+
+Reran PlatformIO build:
+
+```text
+pio run
+```
+
+Result:
+
+```text
+SUCCESS
+```
+
+Hardware bring-up observations:
+
+- `motor.status` responds over serial.
+- Motor enable/disable command path works.
+- Direction now changes correctly after enabling the GPIO39-GPIO48 VO4 LDO domain.
+- Endstop status and endstop behavior were confirmed during bring-up.
+
+## 2026-06-16 - Failed Sensors Skipped After Startup
+
+What changed:
+
+- Added a `sensorOnline` array to track which sensors successfully initialize.
+- `sensorTask` now skips sensors that failed `begin()`.
+
+Why:
+
+During motor bring-up, failed I2C sensors such as SHT45 or BME688 were still being polled after startup. That caused repeated I2C errors and noisy serial output even though those devices had already reported `begin_failed`.
+
+Verification:
+
+Reran PlatformIO build:
+
+```text
+pio run
+```
+
+Result:
+
+```text
+SUCCESS
+```
+
+## 2026-06-16 - Hardware Errata Started
+
+What changed:
+
+- Added `hardware/errata.md`.
+- Documented that the current hardware lacks a dedicated endstop connector.
+- Documented that the next hardware revision should add more convenient GND access points and test points.
+
+Why:
+
+Motor bring-up exposed practical hardware revision needs. The endstop needs a reliable connector instead of improvised wiring, and additional ground access points make temporary sensors, probes, and debug wiring safer and more reliable.
+
+Verification:
+
+Documentation-only change.
+
 ## 2026-06-12 - FireBeetle ESP32-P4 ADC Pin Mapping Fixed
 
 What changed:

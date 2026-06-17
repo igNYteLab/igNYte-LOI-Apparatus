@@ -1,4 +1,4 @@
-# Hardware Errata
+# Hardware Errata v1
 
 Confirmed hardware issues and revision notes for the IgNYte-FPA support electronics.
 
