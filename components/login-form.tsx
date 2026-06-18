@@ -102,7 +102,7 @@ export function LoginForm({
                 className="hidden h-9 w-auto object-contain dark:block"
               />
             </a>
-            <h1 className="text-xl font-bold">Ignyte Test Bench Monitor</h1>
+          
             
           </div>
           <Field>

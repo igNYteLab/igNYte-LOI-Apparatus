@@ -77,6 +77,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { fw, SENSOR_NAMES, type FirmwareSample } from "@/lib/firmware"
+import { recordCompletedTest } from "@/lib/local-db"
 import {
   appendTestArchive,
   downloadBlobFile,
@@ -374,6 +375,22 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       downloadBlobFile(videoFile, videoBlob)
     }
     appendTestArchive(entry)
+    // Mirror the save into the local DB (db/schema.sql shape) — best effort,
+    // never blocks the archive flow.
+    try {
+      recordCompletedTest({
+        sample: { externalId: sampleLabel },
+        run: {
+          externalTestId: context?.testId ?? null,
+          startedAt: sessionStartedAt,
+          stoppedAt: sessionStoppedAt,
+          durationSeconds: sessionDurationSeconds,
+        },
+        samples: sessionSamples,
+      })
+    } catch {
+      // Local DB is non-critical; ignore failures.
+    }
     toast.success("Test archive saved locally")
     clearSession()
   }
