@@ -3,6 +3,7 @@
 import * as React from "react"
 import Image from "next/image"
 
+import { useAuth } from "@/components/auth-provider"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import {
@@ -14,29 +15,41 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { IconCpu, IconDashboard } from "@tabler/icons-react"
+import { IconCpu, IconDashboard, IconUsers } from "@tabler/icons-react"
 
-const data = {
-  user: {
-    name: "User",
-    email: "",
-    avatar: "",
-  },
-  navMain: [
-    {
-      title: "Dashboard",
-      url: "/dashboard",
-      icon: <IconDashboard />,
-    },
-    {
-      title: "Device Board",
-      url: "/dashboard/device",
-      icon: <IconCpu />,
-    },
-  ],
+const sidebarUser = {
+  name: "User",
+  email: "",
+  avatar: "",
 }
 
+const BASE_NAV = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: <IconDashboard />,
+  },
+  {
+    title: "Device Board",
+    url: "/dashboard/device",
+    icon: <IconCpu />,
+  },
+]
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { isAdmin } = useAuth()
+  // The User Management entry is only shown to admins (and the route itself
+  // re-checks). Firestore rules are the real enforcement.
+  const navMain = isAdmin
+    ? [
+        ...BASE_NAV,
+        {
+          title: "User Management",
+          url: "/dashboard/users",
+          icon: <IconUsers />,
+        },
+      ]
+    : BASE_NAV
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -69,10 +82,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
+        <NavMain items={navMain} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={sidebarUser} />
       </SidebarFooter>
     </Sidebar>
   )

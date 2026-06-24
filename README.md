@@ -17,7 +17,9 @@ and sends motor / flow / sensor commands.
 - **Mainsail / Klipper-inspired UI** — always-visible **E-STOP** (kills motion
   and cuts both gas flows), a raw serial **Console** with command input, and
   Klipper-style jog controls, split into **Monitoring** and **Config** tabs.
-- **Auth** — Firebase email/password sign-in gating the dashboard.
+- **Auth & user management** — Firebase email/password sign-in gating the
+  dashboard, plus an admin-only **User Management** page to add users (creates
+  the account and emails a password-setup link) and manage roles and access.
 
 ## Tech stack
 
@@ -44,6 +46,40 @@ config (`NEXT_PUBLIC_FIREBASE_*`). Optional camera stream URLs:
 
 - `NEXT_PUBLIC_CAMERA_URL` — RGB sample-chamber IP/MJPEG stream.
 - `NEXT_PUBLIC_HSI_CAMERA_URL` — hyperspectral (monitoring-only) stream.
+
+## User management
+
+Admins add users from **User Management** (`/dashboard/users`, in the sidebar).
+Adding a user:
+
+1. creates a real Firebase Authentication account (on a short-lived secondary
+   app instance, so you stay signed in);
+2. writes a profile to the Firestore `users` collection (email, name, role,
+   status); and
+3. emails the person a **password-reset link** so they set their own password,
+   then sign in at `/login`.
+
+Roles are `admin` (can manage users) and `member` (standard access). Admins can
+resend the setup link, change roles, and disable accounts. A disabled user is
+signed out on their next navigation (a hard Firebase Auth disable would need the
+Admin SDK).
+
+This flow runs entirely client-side; the authorization boundary is **Firestore
+Security Rules** ([`firestore.rules`](firestore.rules)), not just the UI.
+
+### First-time setup
+
+1. **Deploy the rules:** `firebase deploy --only firestore:rules`
+   (or paste [`firestore.rules`](firestore.rules) into Firebase Console →
+   Firestore → Rules).
+2. **Bootstrap the first admin:** in the Firebase Console, create a document in
+   the `users` collection whose **ID is your Auth UID** with fields
+   `role: "admin"`, `status: "active"`, and `email: "<you>"`. After that you can
+   add everyone else from the app.
+
+> Email/password sign-in must be enabled in **Firebase Console → Authentication
+> → Sign-in method**, and your domain listed under **Authorized domains** for
+> the reset emails to work.
 
 ## Firmware serial protocol
 

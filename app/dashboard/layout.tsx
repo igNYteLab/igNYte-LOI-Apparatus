@@ -17,13 +17,22 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const { user, loading } = useAuth()
+  const { user, loading, profile, profileLoading, signOut } = useAuth()
 
   useEffect(() => {
     if (!loading && !user) {
       router.replace("/login")
     }
   }, [loading, user, router])
+
+  // Soft-disable: an admin can mark a user "disabled" in the directory, which
+  // signs them out on their next navigation. (A hard Firebase Auth disable
+  // needs the Admin SDK; this is the client-side equivalent.)
+  useEffect(() => {
+    if (!profileLoading && profile?.status === "disabled") {
+      void signOut()
+    }
+  }, [profileLoading, profile, signOut])
 
   if (loading || !user) {
     return <DashboardShellSkeleton />

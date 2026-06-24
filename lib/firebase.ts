@@ -7,7 +7,9 @@ import {
 import { getAuth, GoogleAuthProvider } from "firebase/auth"
 import { getFirestore } from "firebase/firestore"
 
-const firebaseConfig = {
+// Exported so the user-management flow can spin up a short-lived *secondary*
+// Firebase app to create accounts without disturbing the admin's session.
+export const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
