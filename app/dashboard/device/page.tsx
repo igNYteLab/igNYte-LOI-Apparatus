@@ -1,5 +1,7 @@
 "use client"
 
+import { useMemo } from "react"
+
 import { useDevice, type DeviceStatus } from "@/components/device-provider"
 import { IdleBoardState } from "@/components/test-monitor/idle-board-state"
 import {
@@ -10,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
+import { observedSampleRates } from "@/lib/firmware"
 import { cn } from "@/lib/utils"
 
 const STATUS_LABEL: Record<DeviceStatus, string> = {
@@ -27,14 +30,24 @@ const STATUS_DOT: Record<DeviceStatus, string> = {
 }
 
 export default function DeviceBoardPage() {
-  const { supported, status, error, lines, samples, connect, disconnect } =
-    useDevice()
+  const {
+    supported,
+    status,
+    error,
+    lines,
+    samples,
+    log,
+    sync,
+    connect,
+    disconnect,
+  } = useDevice()
 
   const connected = status === "connected"
   const busy = status === "connecting"
   const sensorEntries = Object.values(samples).sort((a, b) =>
     a.sensor.localeCompare(b.sensor),
   )
+  const rates = useMemo(() => observedSampleRates(log), [log])
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-4 lg:p-6">
@@ -48,6 +61,11 @@ export default function DeviceBoardPage() {
             <h1 className="text-lg font-medium">Device Board</h1>
             <p className="text-sm text-muted-foreground">
               {STATUS_LABEL[status]} · live view only, nothing is recorded
+              {connected
+                ? sync.calibrated
+                  ? " · clock synced"
+                  : " · clock syncing…"
+                : ""}
             </p>
           </div>
         </div>
@@ -102,16 +120,21 @@ export default function DeviceBoardPage() {
               <dl className="grid grid-cols-2 gap-3 text-sm @container">
                 {sensorEntries.map((sample) => (
                   <div key={sample.sensor} className="rounded-md border px-3 py-2">
-                    <dt className="truncate text-xs text-muted-foreground">
-                      {sample.sensor}
+                    <dt className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span className="truncate">{sample.sensor}</span>
+                      {rates[sample.sensor] !== undefined ? (
+                        <span className="tabular-nums">
+                          {rates[sample.sensor].toFixed(1)} Hz
+                        </span>
+                      ) : null}
                     </dt>
                     <dd className="font-mono font-medium">
-                      {sample.temp_c !== undefined
-                        ? `${sample.temp_c.toFixed(1)} °C`
-                        : sample.pct !== undefined
-                          ? `${sample.pct.toFixed(1)} %`
-                          : sample.velocity_m_s !== undefined
-                            ? `${sample.velocity_m_s.toFixed(3)} m/s`
+                      {typeof sample.o2_vol_pct === "number"
+                        ? `${sample.o2_vol_pct.toFixed(2)} % O₂`
+                        : typeof sample.temp_c === "number"
+                          ? `${sample.temp_c.toFixed(1)} °C`
+                          : typeof sample.pct === "number"
+                            ? `${sample.pct.toFixed(1)} %`
                             : "—"}
                     </dd>
                   </div>

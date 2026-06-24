@@ -12,9 +12,12 @@ import {
 import {
   BAUD_RATE,
   isBootReady,
+  motorStatePatch,
   parseFirmwareLine,
   type FirmwareSample,
+  type FirmwareStatus,
   type MotorState,
+  type SensorStatusEntry,
 } from "@/lib/firmware"
 
 export type DeviceStatus =
@@ -28,7 +31,19 @@ const MAX_LINES = 200
 // memory; sessions longer than this many samples lose their earliest points.
 const MAX_LOG = 10_000
 
+// Host↔MCU clock sync. During the first SYNC_WINDOW_MS of samples we collect
+// (perfNow − t_us/1000) offsets; the MINIMUM offset is the least-delayed sample
+// and best approximates the true clock offset. After the window we lock it and
+// stamp every message's syncedMs = t_us/1000 + bestOffset, in the laptop
+// performance.now() timeline (for webcam / A-V correlation).
+const SYNC_WINDOW_MS = 3000
+
 export type BootState = { status: string; ready: boolean; severity?: string }
+
+/** Host↔MCU clock-sync state for webcam/data correlation. `offsetMs` is the
+ *  best (minimum) clock offset seen so far; `calibrated` is true once the
+ *  initial window has elapsed and the offset is locked. */
+export type ClockSync = { calibrated: boolean; offsetMs: number | null }
 
 type DeviceContextValue = {
   supported: boolean
@@ -44,6 +59,16 @@ type DeviceContextValue = {
   motor: MotorState | null
   /** Latest boot status, or null until the board reports one. */
   boot: BootState | null
+  /** Latest `motor.driver_status` (TMC2209 UART) response, or null. */
+  driver: FirmwareStatus | null
+  /** Latest `motor.stall_status` (StallGuard4) response, or null. */
+  stall: FirmwareStatus | null
+  /** Latest `sensor.status` sensor list, or null. */
+  sensorStatuses: SensorStatusEntry[] | null
+  /** Latest `i2c.scan` result, or null. */
+  i2c: { addresses: number[]; count: number } | null
+  /** Host↔MCU clock-sync state (laptop performance.now() timeline). */
+  sync: ClockSync
   connect: () => Promise<void>
   disconnect: () => Promise<void>
   /** Send a JSON command string to the board (newline appended). */
@@ -61,11 +86,25 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const [log, setLog] = useState<FirmwareSample[]>([])
   const [motor, setMotor] = useState<MotorState | null>(null)
   const [boot, setBoot] = useState<BootState | null>(null)
+  const [driver, setDriver] = useState<FirmwareStatus | null>(null)
+  const [stall, setStall] = useState<FirmwareStatus | null>(null)
+  const [sensorStatuses, setSensorStatuses] = useState<
+    SensorStatusEntry[] | null
+  >(null)
+  const [i2c, setI2c] = useState<{ addresses: number[]; count: number } | null>(
+    null,
+  )
+  const [syncCalibrated, setSyncCalibrated] = useState(false)
+  const [syncOffsetMs, setSyncOffsetMs] = useState<number | null>(null)
 
   const portRef = useRef<SerialPort | null>(null)
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
   const readLoopRef = useRef<Promise<void> | null>(null)
   const keepReadingRef = useRef(false)
+  // Clock-sync calibration (mutated per message; mirrored to state for the UI).
+  const syncStartRef = useRef<number | null>(null)
+  const syncBestOffsetRef = useRef<number | null>(null)
+  const syncCalibratedRef = useRef(false)
 
   useEffect(() => {
     const ok = typeof navigator !== "undefined" && "serial" in navigator
@@ -82,6 +121,15 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     setLog([])
     setMotor(null)
     setBoot(null)
+    setDriver(null)
+    setStall(null)
+    setSensorStatuses(null)
+    setI2c(null)
+    syncStartRef.current = null
+    syncBestOffsetRef.current = null
+    syncCalibratedRef.current = false
+    setSyncCalibrated(false)
+    setSyncOffsetMs(null)
   }, [])
 
   const readLoop = useCallback(async () => {
@@ -103,35 +151,74 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         if (!complete.length) continue
 
         const receivedAt = Date.now()
+        const perfNow = performance.now()
         const newSamples: FirmwareSample[] = []
-        let nextMotor: MotorState | null = null
+        let motorPatch: Partial<MotorState> | null = null
         let nextBoot: BootState | null = null
+        let nextDriver: FirmwareStatus | null = null
+        let nextStall: FirmwareStatus | null = null
+        let nextSensors: SensorStatusEntry[] | null = null
+        let nextI2c: { addresses: number[]; count: number } | null = null
 
         for (const part of complete) {
           const parsed = parseFirmwareLine(part, receivedAt)
           if (parsed.kind === "sample") {
-            newSamples.push(parsed.sample)
-          } else if (parsed.kind === "status") {
-            const s = parsed.status
-            if (
-              s.component === "motor" &&
-              (s.status === "state" || typeof s.enabled === "boolean")
-            ) {
-              nextMotor = {
-                enabled: s.enabled ?? false,
-                endstop_active: s.endstop_active ?? false,
-                velocity_mode: s.velocity_mode ?? false,
-                position_steps: s.position_steps ?? 0,
-                position_mm: s.position_mm ?? 0,
-                updatedAt: receivedAt,
+            const sample = parsed.sample
+            const tMcuMs = sample.t_us / 1000
+            const offset = perfNow - tMcuMs
+            // Calibrate during the initial window: keep the running minimum
+            // offset (least-delayed sample ≈ true clock offset), then lock it.
+            if (!syncCalibratedRef.current) {
+              if (
+                syncBestOffsetRef.current === null ||
+                offset < syncBestOffsetRef.current
+              ) {
+                syncBestOffsetRef.current = offset
+              }
+              if (syncStartRef.current === null) syncStartRef.current = perfNow
+              if (perfNow - syncStartRef.current >= SYNC_WINDOW_MS) {
+                syncCalibratedRef.current = true
               }
             }
-            if (s.component === "boot") {
-              nextBoot = {
-                status: s.status,
-                ready: isBootReady(s),
-                severity: s.severity,
-              }
+            const bestOffset = syncBestOffsetRef.current ?? offset
+            sample.perfRecvMs = perfNow
+            sample.syncedMs = tMcuMs + bestOffset
+            newSamples.push(sample)
+            continue
+          }
+          if (parsed.kind !== "status") continue
+          const s = parsed.status
+          s.perfRecvMs = perfNow
+          if (typeof s.t_us === "number" && syncBestOffsetRef.current !== null) {
+            s.syncedMs = s.t_us / 1000 + syncBestOffsetRef.current
+          }
+
+          // Motor state arrives in different shapes (state/enabled/disabled and
+          // stall completions that carry only position). Merge whichever fields
+          // each message actually reports onto the running state.
+          const patch = motorStatePatch(s)
+          if (patch) motorPatch = { ...(motorPatch ?? {}), ...patch }
+
+          if (s.component === "boot") {
+            nextBoot = {
+              status: s.status,
+              ready: isBootReady(s),
+              severity: s.severity,
+            }
+          }
+          if (s.component === "motor" && s.status === "driver_status") {
+            nextDriver = s
+          }
+          if (s.component === "motor" && s.status === "stall_status") {
+            nextStall = s
+          }
+          if (s.component === "sensor" && Array.isArray(s.sensors)) {
+            nextSensors = s.sensors
+          }
+          if (s.component === "i2c" && Array.isArray(s.addresses)) {
+            nextI2c = {
+              addresses: s.addresses,
+              count: typeof s.count === "number" ? s.count : s.addresses.length,
             }
           }
         }
@@ -151,8 +238,27 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
             return next.length > MAX_LOG ? next.slice(-MAX_LOG) : next
           })
         }
-        if (nextMotor) setMotor(nextMotor)
+        if (motorPatch) {
+          const patch = motorPatch
+          setMotor((prev) => ({
+            enabled: patch.enabled ?? prev?.enabled ?? false,
+            endstop_active: patch.endstop_active ?? prev?.endstop_active ?? false,
+            velocity_mode: patch.velocity_mode ?? prev?.velocity_mode ?? false,
+            position_steps: patch.position_steps ?? prev?.position_steps ?? 0,
+            position_mm: patch.position_mm ?? prev?.position_mm ?? 0,
+            updatedAt: receivedAt,
+          }))
+        }
         if (nextBoot) setBoot(nextBoot)
+        if (nextDriver) setDriver(nextDriver)
+        if (nextStall) setStall(nextStall)
+        if (nextSensors) setSensorStatuses(nextSensors)
+        if (nextI2c) setI2c(nextI2c)
+        if (newSamples.length) {
+          // Mirror calibration to state for the UI (same value → no re-render).
+          setSyncOffsetMs(syncBestOffsetRef.current)
+          setSyncCalibrated(syncCalibratedRef.current)
+        }
       }
     } catch (err) {
       if (keepReadingRef.current) {
@@ -254,6 +360,11 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         log,
         motor,
         boot,
+        driver,
+        stall,
+        sensorStatuses,
+        i2c,
+        sync: { calibrated: syncCalibrated, offsetMs: syncOffsetMs },
         connect,
         disconnect,
         sendCommand,

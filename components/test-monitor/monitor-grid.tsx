@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 import { toast } from "sonner"
 import {
+  IconActivity,
   IconAdjustments,
   IconBolt,
   IconDatabaseExport,
@@ -14,6 +15,7 @@ import {
   IconPlayerPlay,
   IconPlayerStop,
   IconRefresh,
+  IconScan,
   IconTemperature,
   IconTerminal2,
   IconWind,
@@ -76,7 +78,14 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
-import { fw, SENSOR_NAMES, type FirmwareSample } from "@/lib/firmware"
+import {
+  fw,
+  observedSampleRates,
+  SENSOR_NAMES,
+  type FirmwareSample,
+  type FirmwareStatus,
+  type SensorStatusEntry,
+} from "@/lib/firmware"
 import { recordCompletedTest } from "@/lib/local-db"
 import {
   appendTestArchive,
@@ -122,8 +131,8 @@ const flowChartConfig = {
   flow2: { label: "Flow 2 %", color: "var(--chart-2)" },
 } satisfies ChartConfig
 
-const velocityChartConfig = {
-  d6f_v03a1: { label: "D6F m/s", color: "var(--chart-3)" },
+const oxygenChartConfig = {
+  o2: { label: "O₂ vol %", color: "var(--chart-1)" },
 } satisfies ChartConfig
 
 export function TestMonitorDashboard() {
@@ -146,6 +155,11 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     log,
     motor,
     boot,
+    driver,
+    stall,
+    sensorStatuses,
+    i2c,
+    sync,
     connect: connectDevice,
     sendCommand,
   } = useDevice()
@@ -194,6 +208,9 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     const start = now - 60_000
     return log.filter((s) => s.receivedAt >= start)
   }, [log])
+
+  // Observed per-sensor sample rate (Hz), recomputed as samples arrive.
+  const sensorRates = React.useMemo(() => observedSampleRates(log), [log])
 
   const liveSampleCount =
     recording && sessionStartMs !== null
@@ -419,6 +436,18 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                 boot: {boot.status}
               </Badge>
             ) : null}
+            {connected ? (
+              <Badge
+                variant={sync.calibrated ? "secondary" : "outline"}
+                title={
+                  sync.offsetMs !== null
+                    ? `Clock offset ${sync.offsetMs.toFixed(0)} ms — sample times = t_us/1000 + offset in the laptop performance.now() timeline`
+                    : "Calibrating host↔board clock offset…"
+                }
+              >
+                {sync.calibrated ? "clock synced" : "clock: syncing…"}
+              </Badge>
+            ) : null}
             {recording ? (
               <Badge variant="destructive" className="animate-pulse">
                 REC · {liveSampleCount}
@@ -489,7 +518,11 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                 <CardDescription>Latest per sensor.</CardDescription>
               </CardHeader>
               <CardContent className="min-h-0 flex-1 overflow-auto">
-                <SensorReadouts samples={samples} connected={connected} />
+                <SensorReadouts
+                  samples={samples}
+                  rates={sensorRates}
+                  connected={connected}
+                />
               </CardContent>
             </Card>
 
@@ -541,10 +574,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                   seriesKeys={[...FLOW_CHANNELS]}
                 />
                 <TrendChart
-                  title="D6F velocity (m/s)"
-                  data={buildSeries(windowed, ["d6f_v03a1"], (s) => s.velocity_m_s)}
-                  config={velocityChartConfig}
-                  seriesKeys={["d6f_v03a1"]}
+                  title="Oxygen (vol %)"
+                  data={buildSeries(windowed, ["o2"], (s) => s.o2_vol_pct)}
+                  config={oxygenChartConfig}
+                  seriesKeys={["o2"]}
                 />
               </CardContent>
             </Card>
@@ -637,6 +670,18 @@ export function MonitorGrid({ context }: MonitorGridProps) {
               onSend={send}
             />
             <SensorRateCard connected={connected} onSend={send} />
+            <StallGuardCard
+              driver={driver}
+              stall={stall}
+              connected={connected}
+              onSend={send}
+            />
+            <BusSensorCard
+              i2c={i2c}
+              sensorStatuses={sensorStatuses}
+              connected={connected}
+              onSend={send}
+            />
             <ConsoleCard
               lines={lines}
               connected={connected}
@@ -700,9 +745,11 @@ function fmt(value: number | undefined, digits = 2) {
 
 function SensorReadouts({
   samples,
+  rates,
   connected,
 }: {
   samples: Record<string, FirmwareSample>
+  rates: Record<string, number>
   connected: boolean
 }) {
   const present = Object.values(samples).sort((a, b) =>
@@ -727,8 +774,13 @@ function SensorReadouts({
               <span className="text-destructive">fault</span>
             ) : null}
           </dt>
-          <dd className="font-mono text-sm tabular-nums">
-            {describeSample(s)}
+          <dd className="flex items-baseline justify-between gap-2 font-mono text-sm tabular-nums">
+            <span>{describeSample(s)}</span>
+            {rates[s.sensor] !== undefined ? (
+              <span className="text-[10px] text-muted-foreground">
+                {rates[s.sensor].toFixed(1)} Hz
+              </span>
+            ) : null}
           </dd>
         </div>
       ))}
@@ -738,6 +790,8 @@ function SensorReadouts({
 
 function describeSample(s: FirmwareSample) {
   switch (s.kind) {
+    case "oxygen":
+      return `${fmt(s.o2_vol_pct, 2)} % O₂`
     case "thermocouple":
       return `${fmt(s.temp_c, 1)} °C`
     case "flow_controller":
@@ -1051,6 +1105,268 @@ function SensorRateCard({
           disabled={!connected}
           onSend={(n) => onSend(fw.sensorRate(sensor, n), `${sensor} → ${Math.round(n)} Hz`)}
         />
+      </CardContent>
+    </Card>
+  )
+}
+
+function isNum(value: string) {
+  return value.trim() !== "" && Number.isFinite(Number(value))
+}
+
+function StallGuardCard({
+  driver,
+  stall,
+  connected,
+  onSend,
+}: {
+  driver: FirmwareStatus | null
+  stall: FirmwareStatus | null
+  connected: boolean
+  onSend: (command: string, successMessage?: string) => void
+}) {
+  const [sgthrs, setSgthrs] = React.useState("")
+  const [tcoolthrs, setTcoolthrs] = React.useState("")
+  const [testVel, setTestVel] = React.useState("")
+  const [testTravel, setTestTravel] = React.useState("")
+  const [homeTravel, setHomeTravel] = React.useState("")
+
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <IconActivity />
+          TMC2209 / StallGuard
+        </CardTitle>
+        <CardDescription>
+          Driver diagnostics and bounded sensorless homing.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() => onSend(fw.motorDriverStatus())}
+          >
+            Driver status
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() => onSend(fw.motorStallStatus())}
+          >
+            Stall status
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() =>
+              onSend(fw.motorDriverConfigure(), "Driver re-configured")
+            }
+          >
+            Reconfigure
+          </Button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <MetricPill
+            label="UART"
+            value={driver ? (driver.connection_ok ? "ok" : "fail") : "—"}
+          />
+          <MetricPill label="µsteps" value={driver?.microsteps ?? "—"} />
+          <MetricPill
+            label="Current"
+            value={
+              typeof driver?.rms_current_ma === "number"
+                ? `${driver.rms_current_ma} mA`
+                : "—"
+            }
+          />
+          <MetricPill label="SG result" value={stall?.sg_result ?? "—"} />
+          <MetricPill label="SG thresh" value={stall?.sg_threshold ?? "—"} />
+          <MetricPill
+            label="DIAG"
+            value={stall ? (stall.diag_pin ? "high" : "low") : "—"}
+          />
+        </div>
+        <Separator />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="grid gap-1">
+            <Label className="text-xs">SGTHRS (0–255)</Label>
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={sgthrs}
+              onChange={(e) => setSgthrs(e.target.value)}
+              disabled={!connected}
+            />
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs">TCOOLTHRS</Label>
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={tcoolthrs}
+              onChange={(e) => setTcoolthrs(e.target.value)}
+              disabled={!connected}
+            />
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!connected || !isNum(sgthrs) || !isNum(tcoolthrs)}
+          onClick={() =>
+            onSend(
+              fw.motorStallConfig(Number(sgthrs), Number(tcoolthrs)),
+              "StallGuard configured",
+            )
+          }
+        >
+          Apply StallGuard config
+        </Button>
+        <Separator />
+        <p className="text-xs text-muted-foreground">
+          Bounded moves — motor must be enabled, idle, and DIAG low.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="grid gap-1">
+            <Label className="text-xs">Test mm/s (−8..8)</Label>
+            <Input
+              type="number"
+              inputMode="decimal"
+              value={testVel}
+              onChange={(e) => setTestVel(e.target.value)}
+              disabled={!connected}
+            />
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs">Max travel (≤10)</Label>
+            <Input
+              type="number"
+              inputMode="decimal"
+              value={testTravel}
+              onChange={(e) => setTestTravel(e.target.value)}
+              disabled={!connected}
+            />
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!connected || !isNum(testVel) || !isNum(testTravel)}
+          onClick={() =>
+            onSend(
+              fw.motorStallTest(Number(testVel), Number(testTravel)),
+              "Stall test started",
+            )
+          }
+        >
+          Run stall test
+        </Button>
+        <NumberCommand
+          label="Home: max travel (≤100 mm)"
+          value={homeTravel}
+          onChange={setHomeTravel}
+          disabled={!connected}
+          onSend={(n) => onSend(fw.motorStallHome(n), "Sensorless homing started")}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
+function BusSensorCard({
+  i2c,
+  sensorStatuses,
+  connected,
+  onSend,
+}: {
+  i2c: { addresses: number[]; count: number } | null
+  sensorStatuses: SensorStatusEntry[] | null
+  connected: boolean
+  onSend: (command: string, successMessage?: string) => void
+}) {
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <IconScan />
+          Bus &amp; sensors
+        </CardTitle>
+        <CardDescription>I²C scan and sensor startup state.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() => onSend(fw.i2cScan())}
+          >
+            Scan I²C
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() => onSend(fw.sensorStatus())}
+          >
+            Sensor status
+          </Button>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">
+            I²C addresses{i2c ? ` · ${i2c.count}` : ""}
+          </span>
+          {i2c && i2c.addresses.length ? (
+            <div className="flex flex-wrap gap-1">
+              {i2c.addresses.map((addr) => (
+                <Badge key={addr} variant="secondary" className="font-mono">
+                  0x{addr.toString(16).toUpperCase()}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {connected ? "Run a scan to list devices." : "—"}
+            </p>
+          )}
+        </div>
+        <Separator />
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Sensors</span>
+          {sensorStatuses && sensorStatuses.length ? (
+            <dl className="grid grid-cols-2 gap-2">
+              {sensorStatuses.map((s) => (
+                <div key={s.name} className="rounded-md border p-2">
+                  <dt className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="font-medium">{s.name}</span>
+                    <span
+                      className={
+                        s.online
+                          ? "text-green-600 dark:text-green-500"
+                          : "text-destructive"
+                      }
+                    >
+                      {s.online ? "online" : "offline"}
+                    </span>
+                  </dt>
+                  <dd className="font-mono text-sm tabular-nums">
+                    {s.rate_hz} Hz
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {connected ? "Request status to list sensors." : "—"}
+            </p>
+          )}
+        </div>
       </CardContent>
     </Card>
   )
