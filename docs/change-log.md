@@ -14,6 +14,23 @@ Why:
 Verification:
 ```
 
+## 2026-06-24 - Sensor Sampling Throughput Fix
+
+What changed:
+
+- Put MAX31856 thermocouple converters into continuous conversion mode instead of the Adafruit library's default one-shot mode.
+- Updated the sensor scheduler to mark each sensor read from the actual completion time instead of one shared scan-start timestamp.
+- Split sensor polling into fast I2C, BME688, and thermocouple tasks with I2C/SPI bus mutexes.
+- Changed BME688 polling to an async start/finish cycle so the gas-heater wait does not hold the I2C bus.
+
+Why:
+
+With all sensors connected, the four thermocouple reads and BME688 heater wait were blocking long enough that the whole sensor list collapsed to the full-scan rate, about `0.7 Hz`. Continuous MAX31856 conversion removes the large per-thermocouple one-shot wait, per-sensor completion timestamps stop all sensors from being rescheduled from a stale timestamp, and split tasks prevent the BME688 heater wait from delaying SHT45/SEN0496 reads.
+
+Verification:
+
+PlatformIO build completed successfully.
+
 ## 2026-06-24 - Project Context Firmware Sync
 
 What changed:

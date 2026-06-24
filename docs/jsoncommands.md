@@ -500,7 +500,7 @@ Unknown sensor output:
 {"type":"status","t_us":123456,"component":"sensor","status":"not_found","detail":"bad_name"}
 ```
 
-Current-code note: `sensorTask` is enabled in `setup()` for continuous scheduled sample publishing. During motor-only debug, it may be temporarily commented out; if disabled, `sensor.rate` still updates the stored rate but samples will not be published.
+Current-code note: the firmware uses separate sensor polling tasks for fast I2C sensors, BME688, and thermocouples. During motor-only debug, those tasks may be temporarily commented out; if disabled, `sensor.rate` still updates the stored rate but samples will not be published for the disabled task group.
 
 ## Flow Controller Commands
 

@@ -69,6 +69,12 @@ struct MotorCommand {
 };
 
 QueueHandle_t motorCommandQueue = nullptr;
+SemaphoreHandle_t i2cBusMutex = nullptr;
+SemaphoreHandle_t spiBusMutex = nullptr;
+
+constexpr size_t kTcSensorIndices[] = {0, 1, 2, 3};
+constexpr size_t kFastI2cSensorIndices[] = {4, 6};
+constexpr size_t kBmeSensorIndex = 5;
 
 // function for publishing status messages to telemetry with a consistent format
 void publishStatus(
@@ -127,12 +133,18 @@ void publishI2cScan() {
   JsonArray addresses = doc["addresses"].to<JsonArray>();
 
   uint8_t count = 0;
+  if (i2cBusMutex != nullptr) {
+    xSemaphoreTake(i2cBusMutex, portMAX_DELAY);
+  }
   for (uint8_t address = 1; address < 127; ++address) {
     Wire.beginTransmission(address);
     if (Wire.endTransmission() == 0) {
       addresses.add(address);
       ++count;
     }
+  }
+  if (i2cBusMutex != nullptr) {
+    xSemaphoreGive(i2cBusMutex);
   }
 
   doc["count"] = count;
@@ -458,26 +470,97 @@ void commandTask(void*) {
   }
 }
 
-void sensorTask(void*) {
+bool pollSensor(size_t sensorIndex, SemaphoreHandle_t busMutex = nullptr) {
+  if (sensorIndex >= kSensorCount || !sensorOnline[sensorIndex]) {
+    return false;
+  }
+
+  SensorBase* sensor = sensors[sensorIndex];
+  const uint64_t timestampUs = nowUs();
+  if (!sensor->due(timestampUs)) {
+    return false;
+  }
+
+  JsonDocument doc;
+  if (busMutex != nullptr) {
+    xSemaphoreTake(busMutex, portMAX_DELAY);
+  }
+  const bool ok = sensor->read(doc, timestampUs);
+  if (busMutex != nullptr) {
+    xSemaphoreGive(busMutex);
+  }
+
+  doc["ok"] = ok;
+  telemetry.write(doc);
+  sensor->markRead(nowUs());
+  return true;
+}
+
+void pollSensorGroup(const size_t* sensorIndices, size_t sensorCount, SemaphoreHandle_t busMutex) {
+  for (size_t i = 0; i < sensorCount; ++i) {
+    pollSensor(sensorIndices[i], busMutex);
+  }
+}
+
+void fastI2cSensorTask(void*) {
   for (;;) {
-    const uint64_t timestampUs = nowUs();
-    for (size_t i = 0; i < kSensorCount; ++i) {
-      if (!sensorOnline[i]) {
-        continue;
-      }
-
-      SensorBase* sensor = sensors[i];
-      if (!sensor->due(timestampUs)) {
-        continue;
-      }
-
-      JsonDocument doc;
-      const bool ok = sensor->read(doc, timestampUs);
-      doc["ok"] = ok;
-      telemetry.write(doc);
-      sensor->markRead(timestampUs);
-    }
+    pollSensorGroup(
+        kFastI2cSensorIndices,
+        sizeof(kFastI2cSensorIndices) / sizeof(kFastI2cSensorIndices[0]),
+        i2cBusMutex);
     vTaskDelay(pdMS_TO_TICKS(1));
+  }
+}
+
+void thermocoupleTask(void*) {
+  for (;;) {
+    pollSensorGroup(kTcSensorIndices, sizeof(kTcSensorIndices) / sizeof(kTcSensorIndices[0]), spiBusMutex);
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+}
+
+void bmeSensorTask(void*) {
+  for (;;) {
+    if (sensorOnline[kBmeSensorIndex]) {
+      const uint64_t timestampUs = nowUs();
+      if (!bme688.asyncReadingActive() && bme688.due(timestampUs)) {
+        if (i2cBusMutex != nullptr) {
+          xSemaphoreTake(i2cBusMutex, portMAX_DELAY);
+        }
+        const bool started = bme688.startAsyncReading();
+        if (i2cBusMutex != nullptr) {
+          xSemaphoreGive(i2cBusMutex);
+        }
+
+        if (!started) {
+          JsonDocument doc;
+          doc["type"] = "sample";
+          doc["kind"] = "environment";
+          doc["sensor"] = bme688.name();
+          doc["t_us"] = timestampUs;
+          doc["ok"] = false;
+          telemetry.write(doc);
+          bme688.markRead(nowUs());
+        }
+      }
+
+      if (bme688.asyncReadingReady()) {
+        JsonDocument doc;
+        const uint64_t readyTimestampUs = nowUs();
+        if (i2cBusMutex != nullptr) {
+          xSemaphoreTake(i2cBusMutex, portMAX_DELAY);
+        }
+        const bool ok = bme688.finishAsyncReading(doc, readyTimestampUs);
+        if (i2cBusMutex != nullptr) {
+          xSemaphoreGive(i2cBusMutex);
+        }
+
+        doc["ok"] = ok;
+        telemetry.write(doc);
+        bme688.markRead(nowUs());
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
 
@@ -543,9 +626,12 @@ void setup() {
   bool bootWarnings = false;
 
   motorCommandQueue = xQueueCreate(8, sizeof(MotorCommand));
+  i2cBusMutex = xSemaphoreCreateMutex();
+  spiBusMutex = xSemaphoreCreateMutex();
   const bool motorQueueOk = motorCommandQueue != nullptr;
   publishStatus("motor", motorQueueOk ? "queue_ok" : "queue_failed", nullptr, motorQueueOk ? nullptr : "warning");
   bootWarnings = bootWarnings || !motorQueueOk;
+  bootWarnings = bootWarnings || i2cBusMutex == nullptr || spiBusMutex == nullptr;
 
   Wire.begin(Pins::kI2cSda, Pins::kI2cScl);
   SPI.begin(Pins::kSpiSck, Pins::kSpiMiso, Pins::kSpiMosi);
@@ -584,7 +670,9 @@ void setup() {
 
   xTaskCreate(motorTask, "motor", 4096, nullptr, 5, nullptr);
   xTaskCreate(commandTask, "commands", 6144, nullptr, 3, nullptr);
-  xTaskCreate(sensorTask, "sensors", 8192, nullptr, 2, nullptr);
+  xTaskCreate(fastI2cSensorTask, "fast_i2c", 6144, nullptr, 2, nullptr);
+  xTaskCreate(bmeSensorTask, "bme688", 4096, nullptr, 2, nullptr);
+  xTaskCreate(thermocoupleTask, "thermo", 6144, nullptr, 2, nullptr);
   xTaskCreate(flowTask, "flow", 6144, nullptr, 2, nullptr);
 
   publishStatus("boot", bootWarnings ? "ready_with_warnings" : "ready");

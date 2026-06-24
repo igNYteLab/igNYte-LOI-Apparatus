@@ -42,21 +42,26 @@ The PlatformIO firmware uses the ESP32 Arduino core, which runs on top of ESP-ID
 ```cpp
 xTaskCreate(motorTask, "motor", 4096, nullptr, 5, nullptr);
 xTaskCreate(commandTask, "commands", 6144, nullptr, 3, nullptr);
-xTaskCreate(sensorTask, "sensors", 8192, nullptr, 2, nullptr);
+xTaskCreate(fastI2cSensorTask, "fast_i2c", 6144, nullptr, 2, nullptr);
+xTaskCreate(bmeSensorTask, "bme688", 4096, nullptr, 2, nullptr);
+xTaskCreate(thermocoupleTask, "thermo", 6144, nullptr, 2, nullptr);
 xTaskCreate(flowTask, "flow", 6144, nullptr, 2, nullptr);
 ```
 
-During some motor-only debug sessions, `sensorTask` may be temporarily commented out in `setup()`. Re-enable it for continuous sensor sample publishing.
+During some motor-only debug sessions, sensor polling tasks may be temporarily commented out in `setup()`. Re-enable them for continuous sensor sample publishing.
 
 Current task roles:
 
 - `motorTask`, priority 5: calls `motor.service()` frequently so STEP/DIR motion is not blocked by sensor or flow operations.
 - `commandTask`, priority 3: reads newline-delimited JSON commands from USB serial. Motor commands are validated and queued for `motorTask` instead of directly mutating motor state.
-- `sensorTask`, priority 2: polls sensors when their individual rates say they are due.
+- `fastI2cSensorTask`, priority 2: polls short I2C reads for SHT45 and SEN0496.
+- `bmeSensorTask`, priority 2: runs BME688 gas measurements as an async start/finish cycle so the heater wait does not hold the I2C bus.
+- `thermocoupleTask`, priority 2: polls the four MAX31856 thermocouple channels on SPI.
 - `flowTask`, priority 2: polls both Bronkhorst controllers periodically.
 - `loop()`: idle delay only.
 
 Motor ownership: `motorTask` owns `MotorController`. `commandTask` sends motor requests through a FreeRTOS queue with depth 8. This avoids simultaneous access to `AccelStepper` from multiple tasks.
+I2C access is protected by an I2C bus mutex because `fastI2cSensorTask`, `bmeSensorTask`, and `i2c.scan` all use `Wire`. SPI thermocouple access is protected by a separate SPI mutex.
 
 ## Pin Map
 
@@ -208,6 +213,8 @@ The first SPI devices are MAX31856 thermocouple converters. The wrapper currentl
 thermocouple_.setThermocoupleType(MAX31856_TCTYPE_K);
 ```
 
+The wrapper also sets `MAX31856_CONTINUOUS` conversion mode. The Adafruit library defaults to one-shot conversion, where `readThermocoupleTemperature()` can block while a conversion completes. Continuous mode keeps the four thermocouple channels from dominating the shared sensor polling loop.
+
 Output fields include:
 
 - thermocouple temperature in Celsius
@@ -232,6 +239,8 @@ The BME688 wrapper reads:
 - pressure in hPa
 - relative humidity in percent
 - gas resistance in kohm
+
+Runtime BME688 polling uses the Adafruit library's async `beginReading()` / `endReading()` path. The task starts the measurement, releases the I2C mutex during the gas-heater wait, then reacquires I2C to finish the read. This keeps the BME688 heater delay from blocking SHT45 and SEN0496 sampling.
 
 The default I2C address in the wrapper is `0x77`. Some boards may use `0x76`; this should be verified with an I2C scan.
 

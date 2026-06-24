@@ -12,6 +12,7 @@ bool Max31856Sensor::begin() {
   }
 
   thermocouple_.setThermocoupleType(MAX31856_TCTYPE_K);
+  thermocouple_.setConversionMode(MAX31856_CONTINUOUS);
   return true;
 }
 
