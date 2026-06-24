@@ -431,14 +431,17 @@ Input:
 Output:
 
 ```json
-{"type":"status","t_us":123456,"component":"i2c","status":"scan","addresses":[32,68,119],"count":3}
+{"type":"status","t_us":123456,"component":"i2c","status":"scan","addresses":[32,68,112,119],"count":4}
 ```
 
 Expected full-board addresses:
 
 - `32` / `0x20`: MCP23017
 - `68` / `0x44`: SHT45
+- `112` / `0x70`: DFRobot SEN0496 oxygen sensor with current config
 - `119` / `0x77`: BME688 with current config
+
+The SEN0496 address can be set to `0x70` through `0x73` with its DIP switch.
 
 ### `sensor.status`
 
@@ -464,7 +467,8 @@ Output:
     {"name":"tc3","online":true,"rate_hz":1},
     {"name":"tc4","online":true,"rate_hz":1},
     {"name":"sht45","online":true,"rate_hz":10},
-    {"name":"bme688","online":true,"rate_hz":2}
+    {"name":"bme688","online":true,"rate_hz":2},
+    {"name":"o2","online":true,"rate_hz":1}
   ]
 }
 ```
@@ -475,7 +479,7 @@ Changes the scheduled polling rate for a sensor.
 
 Input fields:
 
-- `sensor`: one of `tc1`, `tc2`, `tc3`, `tc4`, `sht45`, `bme688`.
+- `sensor`: one of `tc1`, `tc2`, `tc3`, `tc4`, `sht45`, `bme688`, `o2`.
 - `hz`: integer polling rate. `0` disables scheduled reads for that sensor.
 
 Input:
@@ -496,7 +500,7 @@ Unknown sensor output:
 {"type":"status","t_us":123456,"component":"sensor","status":"not_found","detail":"bad_name"}
 ```
 
-Current-code note: in the checked-out `main.cpp`, `sensorTask` is commented out in `setup()`. `sensor.rate` still updates the stored rate, but scheduled sample publishing requires `sensorTask` to be enabled.
+Current-code note: `sensorTask` is enabled in `setup()` for continuous scheduled sample publishing. During motor-only debug, it may be temporarily commented out; if disabled, `sensor.rate` still updates the stored rate but samples will not be published.
 
 ## Flow Controller Commands
 
@@ -596,6 +600,21 @@ If the thermocouple is unplugged, `fault` is nonzero and `valid`/`ok` are false.
   "pressure_hpa": 1008.1,
   "rh_pct": 39.8,
   "gas_kohm": 8.2,
+  "ok": true
+}
+```
+
+### SEN0496 Oxygen Samples
+
+Emitted by the sensor task when the DFRobot SEN0496 oxygen sensor is online and scheduled.
+
+```json
+{
+  "type": "sample",
+  "kind": "oxygen",
+  "sensor": "o2",
+  "t_us": 123456,
+  "o2_vol_pct": 20.95,
   "ok": true
 }
 ```

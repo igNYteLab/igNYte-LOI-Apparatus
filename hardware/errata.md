@@ -7,6 +7,7 @@ Confirmed hardware issues and revision notes for the IgNYte-FPA support electron
 Current issue:
 
 - The current hardware does not provide a dedicated connector for the motor endstop switch.
+- The endstop connection needs real header pins on the board so the switch can plug in securely during bring-up and normal use.
 - This makes bring-up awkward because the endstop must be wired through loose jumper wires, direct soldering, or an external adapter.
 
 Why it matters:
@@ -17,10 +18,30 @@ Why it matters:
 
 Next hardware revision:
 
-- Add a dedicated endstop connector near the motor/stage interface.
+- Add a dedicated endstop connector/header near the motor/stage interface.
 - At minimum, expose `ENDSTOP` and `GND`.
 - Consider a 3-pin connector with `3V3`, `GND`, and `ENDSTOP` so both bare switches and endstop modules can be supported.
 - Use clear silkscreen labels for signal, ground, and optional power.
+
+## TMC2209 UART RX Needs Series Resistor
+
+Current issue:
+
+- The TMC2209 UART bring-up required a bodged UART receive path instead of a clean board-level connection.
+- The ESP32-side TMC2209 UART RX path should be wired through a 1 kOhm series resistor for the TMC2209 single-wire UART interface.
+
+Why it matters:
+
+- The TMC2209 PDN_UART interface is commonly used as a shared/single-wire UART node.
+- A series resistor limits contention current and makes the MCU UART connection safer when TX/RX are tied into the driver UART line.
+- Without this resistor and a documented routing path, UART diagnostics and StallGuard configuration can fail or require fragile bodge wiring.
+
+Next hardware revision:
+
+- Add the TMC2209 UART RX routing explicitly to the schematic.
+- Include a 1 kOhm series resistor in the ESP32-to-TMC2209 UART path.
+- Keep the TMC UART path separate from analog sensor headers so Analog 1 can be restored as a normal sensor input if needed.
+- Label the resistor and UART net clearly for bring-up probing.
 
 ## More Ground Access Points Needed
 

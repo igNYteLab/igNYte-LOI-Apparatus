@@ -34,15 +34,17 @@ constexpr uint8_t kMotorMs1 = 1;  // MCP23017 GPA1 / A1
 namespace Addresses {
 constexpr uint8_t kBme688 = 0x77;
 constexpr uint8_t kMcp23017 = 0x20;
+constexpr uint8_t kSen0496 = 0x70;
 
 //Not used; library defaults to this and doesn't support changing it. Here for ground truth/reference.
 constexpr uint8_t kSht45 = 0x44;    
 }  // namespace Addresses
 
 namespace SensorRates {
-constexpr uint16_t kTc = 1;      // 10 Hz
-constexpr uint16_t kSht45 = 10;   // 2 Hz
-constexpr uint16_t kBme688 = 2; // 2 Hz
+constexpr uint16_t kTc = 1;       // 1 Hz
+constexpr uint16_t kSht45 = 10;   // 10 Hz
+constexpr uint16_t kBme688 = 2;   // 2 Hz
+constexpr uint16_t kSen0496 = 1;  // 1 Hz
 }  // namespace SensorRates
 
 namespace Config {

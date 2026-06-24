@@ -11,6 +11,7 @@
 #include "devices/ProparAsciiClient.h"
 #include "sensors/Bme688Sensor.h"
 #include "sensors/Max31856Sensor.h"
+#include "sensors/Sen0496Sensor.h"
 #include "sensors/Sht45Sensor.h"
 
 HardwareSerial TmcSerial(1);
@@ -30,6 +31,7 @@ Max31856Sensor tc3("tc3", Pins::kChipSelects[2], SensorRates::kTc);
 Max31856Sensor tc4("tc4", Pins::kChipSelects[3], SensorRates::kTc);
 Sht45Sensor sht45("sht45", Wire, SensorRates::kSht45);
 Bme688Sensor bme688("bme688", Wire, SensorRates::kBme688, Addresses::kBme688);
+Sen0496Sensor o2("o2", Wire, SensorRates::kSen0496, Addresses::kSen0496);
 SensorBase* sensors[] = {
     &tc1,
     &tc2,
@@ -37,6 +39,7 @@ SensorBase* sensors[] = {
     &tc4,
     &sht45,
     &bme688,
+    &o2,
 };
 
 constexpr size_t kSensorCount = sizeof(sensors) / sizeof(sensors[0]);
@@ -581,7 +584,7 @@ void setup() {
 
   xTaskCreate(motorTask, "motor", 4096, nullptr, 5, nullptr);
   xTaskCreate(commandTask, "commands", 6144, nullptr, 3, nullptr);
-  //xTaskCreate(sensorTask, "sensors", 8192, nullptr, 2, nullptr);
+  xTaskCreate(sensorTask, "sensors", 8192, nullptr, 2, nullptr);
   xTaskCreate(flowTask, "flow", 6144, nullptr, 2, nullptr);
 
   publishStatus("boot", bootWarnings ? "ready_with_warnings" : "ready");

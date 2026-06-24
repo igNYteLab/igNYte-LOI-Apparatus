@@ -301,16 +301,18 @@ Scans the configured I2C bus on SDA GPIO 7 and SCL GPIO 8.
 Expected response:
 
 ```json
-{"type":"status","t_us":123456789,"component":"i2c","status":"scan","addresses":[32,68,119],"count":3}
+{"type":"status","t_us":123456789,"component":"i2c","status":"scan","addresses":[32,68,112,119],"count":4}
 ```
 
 Expected full-board addresses:
 
 - `0x20` / decimal `32`: MCP23017 I/O expander.
 - `0x44` / decimal `68`: SHT45.
+- `0x70` / decimal `112`: DFRobot SEN0496 oxygen sensor, if the DIP switch uses the configured address.
 - `0x77` / decimal `119`: BME688, if the board uses the configured address.
 
 If BME688 appears as decimal `118` / `0x76`, update `Addresses::kBme688` in `AppConfig.h`.
+If SEN0496 appears as decimal `113` / `114` / `115`, update `Addresses::kSen0496` to `0x71` / `0x72` / `0x73`.
 
 #### `sensor.status`
 
@@ -329,12 +331,13 @@ Expected response:
   "component": "sensor",
   "status": "state",
   "sensors": [
-    {"name":"tc1","online":true,"rate_hz":10},
-    {"name":"tc2","online":true,"rate_hz":10},
-    {"name":"tc3","online":true,"rate_hz":10},
-    {"name":"tc4","online":true,"rate_hz":10},
-    {"name":"sht45","online":true,"rate_hz":2},
-    {"name":"bme688","online":true,"rate_hz":2}
+    {"name":"tc1","online":true,"rate_hz":1},
+    {"name":"tc2","online":true,"rate_hz":1},
+    {"name":"tc3","online":true,"rate_hz":1},
+    {"name":"tc4","online":true,"rate_hz":1},
+    {"name":"sht45","online":true,"rate_hz":10},
+    {"name":"bme688","online":true,"rate_hz":2},
+    {"name":"o2","online":true,"rate_hz":1}
   ]
 }
 ```
@@ -360,6 +363,7 @@ Known sensor names:
 - `tc4`
 - `sht45`
 - `bme688`
+- `o2`
 
 The `d6f_v03a1` implementation remains in the repository but is not instantiated in this build because GPIO 23 is used as the TMC2209 UART TX pin.
 
@@ -534,6 +538,25 @@ Fields:
 - `pressure_hpa`: pressure in hPa.
 - `rh_pct`: relative humidity in percent.
 - `gas_kohm`: gas resistance in kohms.
+
+#### SEN0496 Oxygen Samples
+
+Sensor: `o2`.
+
+```json
+{
+  "type": "sample",
+  "kind": "oxygen",
+  "sensor": "o2",
+  "t_us": 123456789,
+  "o2_vol_pct": 20.95,
+  "ok": true
+}
+```
+
+Fields:
+
+- `o2_vol_pct`: oxygen concentration in percent volume.
 
 #### D6F Analog Flow Velocity Samples
 

@@ -8,7 +8,7 @@ The custom board sits between a laptop and the experimental apparatus hardware. 
 
 - reading multiple I2C sensors
 - reading multiple SPI sensors
-- reading analog sensors
+- reading analog sensors in a future hardware/config revision; the D6F analog wrapper remains in the repo but is inactive in the current ESP32-P4 build
 - controlling a TMC2209-driven vertical camera stage
 - communicating with two Bronkhorst flow controllers over RS232
 - streaming timestamped data to the laptop
@@ -46,6 +46,8 @@ xTaskCreate(sensorTask, "sensors", 8192, nullptr, 2, nullptr);
 xTaskCreate(flowTask, "flow", 6144, nullptr, 2, nullptr);
 ```
 
+During some motor-only debug sessions, `sensorTask` may be temporarily commented out in `setup()`. Re-enable it for continuous sensor sample publishing.
+
 Current task roles:
 
 - `motorTask`, priority 5: calls `motor.service()` frequently so STEP/DIR motion is not blocked by sensor or flow operations.
@@ -71,6 +73,7 @@ Known I2C devices for first bring-up:
 
 - SHT45
 - BME688
+- DFRobot SEN0496 oxygen sensor
 
 The board may later support more I2C devices, including via an I/O expander board.
 
@@ -102,7 +105,9 @@ First bring-up uses 4 MAX31856 thermocouple boards. The board has capacity for 2
 | Analog 1 | 23 / A3 |
 | Analog 2 | 22 / A2 |
 
-The first analog sensor is an Omron D6F-V03A1 flow velocity sensor.
+The D6F-V03A1 flow velocity wrapper remains in the codebase, but analog sensing is inactive in the current ESP32-P4 build because GPIO23 is used for TMC2209 UART TX.
+
+Current board-bodge warning: do not use the Analog 1 header/pad for a sensor on this hardware revision. It has been bodged into the TMC2209 UART path for motor-driver bring-up, so treat Analog 1 as reserved for the motor driver UART until the hardware is revised.
 
 ### TMC2209 / Vertical Camera Stage
 
@@ -113,10 +118,11 @@ The first analog sensor is an Omron D6F-V03A1 flow velocity sensor.
 | DIAG | 50 |
 | INDEX | 52 |
 | ENDSTOP | 51 |
-| TMC2209 UART | 32 |
+| TMC2209 UART RX | 32 |
+| TMC2209 UART TX | 23 |
 | Driver enable | 33 |
 
-`GPIO32` is the TMC2209 single-wire UART pin. `GPIO33` is the motor driver enable pin.
+`GPIO32` is the ESP32 RX side of the TMC2209 UART path and `GPIO23` is the ESP32 TX side in firmware. The TMC2209 UART RX path should be wired through a 1 kOhm series resistor for the single-wire UART interface. `GPIO33` is the motor driver enable pin. GPIO23 was previously considered for analog D6F, and the Analog 1 board header/pad has also been bodged into the TMC UART path, so the D6F runtime instance is currently not active in the ESP32-P4 build.
 
 ### Bronkhorst RS232
 
@@ -179,16 +185,17 @@ The current default rates are:
 
 | Sensor | Default rate |
 | --- | ---: |
-| MAX31856 thermocouples | 10 Hz each |
-| SHT45 | 2 Hz |
+| MAX31856 thermocouples | 1 Hz each |
+| SHT45 | 10 Hz |
 | BME688 | 2 Hz |
-| D6F-V03A1 analog | 50 Hz |
+| SEN0496 oxygen | 1 Hz |
+| D6F-V03A1 analog | inactive in current ESP32-P4 build |
 | Bronkhorst readback | 5 Hz |
 
 The sensor rate can be changed at runtime with:
 
 ```json
-{"cmd":"sensor.rate","sensor":"tc1","hz":20}
+{"cmd":"sensor.rate","sensor":"tc1","hz":1}
 ```
 
 ## Known Sensors
@@ -228,11 +235,31 @@ The BME688 wrapper reads:
 
 The default I2C address in the wrapper is `0x77`. Some boards may use `0x76`; this should be verified with an I2C scan.
 
-### Omron D6F-V03A1
+### DFRobot SEN0496 Oxygen
 
-The D6F-V03A1 is connected as an analog voltage sensor on GPIO23/A3.
+The SEN0496 wrapper reads oxygen concentration over I2C without adding the DFRobot Arduino library as a PlatformIO dependency. The firmware implements the small register read directly so the shared `Wire` setup remains under project control.
 
 The firmware logs:
+
+- oxygen concentration in percent volume as `o2_vol_pct`
+
+The default I2C address is `0x70`. The SEN0496 DIP switch can also select `0x71`, `0x72`, or `0x73`; verify the detected address with:
+
+```json
+{"cmd":"i2c.scan"}
+```
+
+The sensor is named `o2` in JSON commands and samples:
+
+```json
+{"cmd":"sensor.rate","sensor":"o2","hz":1}
+```
+
+### Omron D6F-V03A1
+
+The D6F-V03A1 wrapper remains in the repository, but the runtime sensor is not instantiated in the current ESP32-P4 build because GPIO23 is assigned to TMC2209 UART TX. A future hardware revision should move either the D6F analog input or the TMC UART TX path before re-enabling this sensor.
+
+When re-enabled, the firmware logs:
 
 - raw ADC count
 - voltage in volts
@@ -277,6 +304,12 @@ Current mechanical assumptions:
 | Steps/mm | 1600 |
 | Max speed | 8 mm/s |
 | Max acceleration | 20 mm/s^2 |
+| StallGuard threshold | SGTHRS 55 |
+| StallGuard cool threshold | TCOOLTHRS 1500 |
+| Stall homing speed | -2 mm/s |
+| Stall homing backoff | 2 mm |
+| Motor current | 600 mA RMS |
+| Motor direction inverted | false |
 
 MS1/MS2 are also connected to an MCP23017 on the I2C bus. Current mapping:
 
@@ -289,17 +322,32 @@ The MCP23017 address is currently `0x20`, configurable by jumper pads and stored
 
 The expected stage is a vertical FUYU-style NEMA14 screw stage with a 2 mm lead. The endstop is currently assumed to be a bottom/home switch, so home is position `0 mm` and upward travel is positive.
 
+The TMC2209 is configured for StealthChop and StallGuard4. DIAG is wired to GPIO50 and is captured with a rising-edge interrupt only during bounded StallGuard test/homing moves. The ISR only latches the event; `motorTask` performs the stop and reports completion.
+
 Current motor commands:
 
 ```json
+{"cmd":"motor.status"}
+{"cmd":"motor.enable"}
+{"cmd":"motor.disable"}
 {"cmd":"motor.move_steps","steps":1600}
 {"cmd":"motor.target_mm","mm":1.0}
 {"cmd":"motor.velocity_mm_s","mm_s":2.0}
 {"cmd":"motor.stop"}
 {"cmd":"motor.home_here"}
+{"cmd":"motor.driver_status"}
+{"cmd":"motor.driver_configure"}
+{"cmd":"motor.stall_config","sgthrs":55,"tcoolthrs":1500}
+{"cmd":"motor.stall_status"}
+{"cmd":"motor.stall_test","mm_s":-2.0,"max_travel_mm":5.0}
+{"cmd":"motor.stall_home","max_travel_mm":70.0}
 ```
 
 Motor commands are placed into a FreeRTOS queue and applied by `motorTask`. The current queue depth is 8. For flame tracking, a future latest-command mailbox may be better for target updates so the motor does not chase stale target positions.
+
+`motor.stall_home` moves toward home using the configured negative homing velocity, stops on StallGuard DIAG or the physical endstop, backs off one 2 mm screw revolution, and sets the backed-off position to zero. If neither source is reached before the travel bound, it reports `stall_home_not_detected` and does not reset position.
+
+`motor.stall_status` and `motor.driver_status` perform TMC UART reads outside the motor pulse-generation task so repeated diagnostics do not block step servicing. A healthy TMC UART should report `connection_ok:true`; if it reports false, StallGuard configuration/readback should not be trusted.
 
 Important safety assumptions:
 
@@ -311,11 +359,11 @@ Important safety assumptions:
 Important follow-up:
 
 - add a configured maximum travel in mm
-- add a formal homing routine
-- add command queueing for thread safety
-- verify direction polarity on hardware
 - verify current limit before connecting the real motor
+- add proper header pins / a dedicated connector for the physical endstop in the next hardware revision
+- add a proper TMC2209 UART RX route through a 1 kOhm series resistor in the next hardware revision
 - consider timer/RMT-based step generation if `AccelStepper` is not smooth enough at desired speeds
+- after hardware bring-up, refactor `main.cpp` so command parsing and telemetry publishers live outside the task/orchestration file
 
 ## Bronkhorst Flow Controller Design
 
@@ -379,9 +427,14 @@ Current examples:
 {"cmd":"motor.velocity_mm_s","mm_s":2.0}
 {"cmd":"motor.stop"}
 {"cmd":"motor.home_here"}
+{"cmd":"motor.stall_home","max_travel_mm":70.0}
 {"cmd":"flow.set","channel":1,"pct":50}
 {"cmd":"sensor.rate","sensor":"tc1","hz":20}
+{"cmd":"i2c.scan"}
+{"cmd":"sensor.status"}
 ```
+
+The concise operator reference for every current JSON command is `docs/jsoncommands.md`.
 
 Current command responses are status messages, also JSONL:
 
@@ -399,7 +452,7 @@ Future command protocol improvements:
 
 - add command IDs so the laptop can match responses to requests
 - add explicit error codes
-- add query commands for motor state and sensor config
+- add command/module split so `main.cpp` does not keep growing
 - add physical-unit flow commands
 - add safety limit commands only after validation
 
@@ -409,16 +462,17 @@ The code builds successfully, but these hardware/runtime assumptions still need 
 
 - `Serial` is USB CDC and does not conflict with `HardwareSerial(0)` used for Flow 2.
 - `HardwareSerial(0)` can safely be used for GPIO37/GPIO38 on this ESP32-P4 board.
-- TMC2209 single-wire UART works using `HardwareSerial.begin(..., rx=32, tx=32)`.
+- TMC2209 UART works using RX GPIO32 and TX GPIO23.
 - TMC2209 driver address is `0b00`.
-- TMC2209 sense resistor is `0.11 ohm`.
+- TMC2209 sense resistor is `0.05 ohm`.
 - 600 mA RMS current is appropriate for the selected NEMA14 motor.
 - MAX31856 thermocouples are type K.
 - BME688 address is `0x77`; verify whether it should be `0x76`.
-- D6F output voltage is inside the ESP32-P4 ADC input range under all conditions.
+- SEN0496 address is `0x70`; verify whether its DIP switch selects `0x71`-`0x73`.
+- D6F output voltage is inside the ESP32-P4 ADC input range under all conditions if the analog input is moved off GPIO23 and the sensor is re-enabled.
 - Bronkhorst controllers use the expected baud and respond to node `0x80`.
 - Endstop polarity is active-low.
-- Motor direction polarity matches the coordinate convention.
+- Motor direction polarity matches the coordinate convention with `Config::kMotorDirectionInverted=false`.
 
 ## Bring-Up Plan
 
@@ -427,13 +481,13 @@ Recommended order:
 1. Build the firmware with PlatformIO.
 2. Flash and confirm boot/status JSON over USB serial.
 3. Verify USB serial is not conflicting with Flow 2 UART.
-4. Run an I2C scan and confirm SHT45/BME688 addresses.
+4. Run an I2C scan and confirm SHT45/BME688/SEN0496/MCP23017 addresses.
 5. Bring up one MAX31856, then all four.
-6. Check D6F raw ADC and voltage against a multimeter.
+6. For a future D6F-capable hardware revision, check D6F raw ADC and voltage against a multimeter.
 7. Test TMC2209 UART communication before motor movement.
 8. Test motor enable and one-step/small-step movement at low current.
 9. Verify direction polarity.
-10. Verify endstop polarity and homing behavior.
+10. Verify endstop polarity and StallGuard homing behavior.
 11. Test one Bronkhorst channel with read-measure only.
 12. Test Bronkhorst setpoint write at low/safe flow.
 13. Add a laptop logger that records JSONL with laptop receive timestamps.
@@ -448,11 +502,11 @@ As of the last verification, `firmware/p4-sensor-hub-arduino` builds successfull
 C:\Users\llane\.platformio\penv\Scripts\pio.exe run
 ```
 
-Observed build metrics:
+Observed build metrics from the most recent successful build:
 
 ```text
-RAM:   8.3%
-Flash: 32.0%
+RAM:   8.6%
+Flash: 32.5%
 ```
 
 The build success proves the current source, dependency declarations, and PlatformIO setup are coherent. It does not prove hardware behavior.
@@ -468,6 +522,7 @@ Key files:
 - `include/sensors/Max31856Sensor.h`, `src/sensors/Max31856Sensor.cpp`: thermocouple wrapper
 - `include/sensors/Sht45Sensor.h`, `src/sensors/Sht45Sensor.cpp`: SHT45 wrapper
 - `include/sensors/Bme688Sensor.h`, `src/sensors/Bme688Sensor.cpp`: BME688 wrapper
+- `include/sensors/Sen0496Sensor.h`, `src/sensors/Sen0496Sensor.cpp`: DFRobot SEN0496 oxygen wrapper
 - `include/sensors/AnalogD6FSensor.h`, `src/sensors/AnalogD6FSensor.cpp`: Omron D6F analog wrapper
 - `include/devices/MotorController.h`, `src/devices/MotorController.cpp`: TMC2209 and STEP/DIR stage wrapper
 - `include/devices/IoExpander.h`, `src/devices/IoExpander.cpp`: MCP23017 wrapper for motor MS1/MS2 setup

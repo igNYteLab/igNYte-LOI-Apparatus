@@ -14,6 +14,53 @@ Why:
 Verification:
 ```
 
+## 2026-06-24 - Project Context Firmware Sync
+
+What changed:
+
+- Swept `docs/project-context.md` against the current firmware state and updated stale motor, sensor, analog, and build-status notes.
+- Documented that Analog 1 must not be used as a sensor input on the current hardware because it has been bodged into the TMC2209 UART path.
+- Updated hardware errata to state that the endstop needs real header pins / a dedicated header connector, not improvised wiring.
+- Updated hardware errata to state that the TMC2209 UART RX path needs a proper board route through a 1 kOhm series resistor.
+
+Why:
+
+The project context is used as the handoff document for future bring-up work, so it needs to reflect current firmware and hardware constraints rather than earlier scaffold assumptions.
+
+Verification:
+
+Cross-checked against `AppConfig.h`, `main.cpp`, and the current wrapper files.
+
+## 2026-06-24 - Main Refactor Follow-Up Flag
+
+What changed:
+
+- Flagged `main.cpp` for a post-hardware-bring-up refactor once the command set and device list stabilize.
+
+Why:
+
+`main.cpp` now contains serial command parsing, command validation, telemetry publishers, motor command dispatch, sensor list setup, and task orchestration. That was useful during bring-up, but the file should be split after hardware validation so command handling and telemetry publishing are easier to maintain.
+
+Verification:
+
+No firmware behavior changed.
+
+## 2026-06-24 - SEN0496 Oxygen Sensor Bring-Up
+
+What changed:
+
+- Added a local `Sen0496Sensor` wrapper for the DFRobot SEN0496 I2C oxygen sensor without adding a PlatformIO library dependency.
+- Added the `o2` sensor instance at default I2C address `0x70` and default rate `1 Hz`.
+- Updated JSON command docs and the serial protocol reference to include the `o2` sensor, expected I2C address, and oxygen sample shape.
+
+Why:
+
+The full board needs to detect and later sample the new I2C oxygen sensor while keeping the shared I2C setup under firmware control.
+
+Verification:
+
+Pending hardware validation with `i2c.scan`; SEN0496 address should appear as `0x70` unless its DIP switch is configured for `0x71`-`0x73`.
+
 ## 2026-06-24 - JSON Command Reference
 
 What changed:
@@ -154,7 +201,7 @@ SUCCESS
 What changed:
 
 - Added `hardware/errata.md`.
-- Documented that the current hardware lacks a dedicated endstop connector.
+- Documented that the current hardware lacks a dedicated endstop connector and needs header pins for a reliable endstop connection.
 - Documented that the next hardware revision should add more convenient GND access points and test points.
 
 Why:
