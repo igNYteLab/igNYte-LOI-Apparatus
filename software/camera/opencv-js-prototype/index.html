@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IgNYte OpenCV.js Flame Tracking Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+  </head>
+  <body>
+    <main class="app">
+      <header class="app-header">
+        <div>
+          <h1>OpenCV.js Flame Tracking Prototype</h1>
+          <p>
+            Browser-only test page for tracking the bottom of a printed orange/yellow flame target.
+          </p>
+        </div>
+        <div class="status-panel">
+          <span id="opencvStatus" class="status-pill">OpenCV loading</span>
+          <span id="cameraStatus" class="status-pill muted">Camera stopped</span>
+          <span id="serialStatus" class="status-pill muted">Serial disconnected</span>
+        </div>
+      </header>
+
+      <section class="controls">
+        <fieldset>
+          <legend>Camera</legend>
+          <label>
+            Device
+            <select id="cameraSelect"></select>
+          </label>
+          <div class="control-row">
+            <button id="refreshCamerasButton" type="button">Refresh Cameras</button>
+            <button id="startButton" type="button">Start Camera</button>
+            <button id="stopButton" type="button" disabled>Stop Camera</button>
+          </div>
+          <label>
+            Requested width
+            <input id="widthInput" type="number" min="160" step="1" />
+          </label>
+          <label>
+            Requested height
+            <input id="heightInput" type="number" min="120" step="1" />
+          </label>
+          <label>
+            Requested FPS
+            <input id="fpsInput" type="number" min="1" max="60" step="1" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Detector HSV Range</legend>
+          <label>
+            <span class="label-row">Hue low <output id="hLowValue"></output></span>
+            <input id="hLow" type="range" min="0" max="179" />
+          </label>
+          <label>
+            <span class="label-row">Hue high <output id="hHighValue"></output></span>
+            <input id="hHigh" type="range" min="0" max="179" />
+          </label>
+          <label>
+            <span class="label-row">Sat low <output id="sLowValue"></output></span>
+            <input id="sLow" type="range" min="0" max="255" />
+          </label>
+          <label>
+            <span class="label-row">Sat high <output id="sHighValue"></output></span>
+            <input id="sHigh" type="range" min="0" max="255" />
+          </label>
+          <label>
+            <span class="label-row">Val low <output id="vLowValue"></output></span>
+            <input id="vLow" type="range" min="0" max="255" />
+          </label>
+          <label>
+            <span class="label-row">Val high <output id="vHighValue"></output></span>
+            <input id="vHigh" type="range" min="0" max="255" />
+          </label>
+          <label>
+            Minimum area px
+            <input id="minAreaInput" type="number" min="1" step="10" />
+          </label>
+          <label>
+            Morph kernel px
+            <input id="kernelInput" type="number" min="1" max="25" step="2" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>1D Recommendation</legend>
+          <label>
+            <span class="label-row">Setpoint row <output id="setpointValue"></output></span>
+            <input id="setpointSlider" type="range" min="0" max="1000" />
+          </label>
+          <label>
+            Deadband px
+            <input id="deadbandInput" type="number" min="0" step="1" />
+          </label>
+          <label>
+            Kp mm/s/px
+            <input id="kpInput" type="number" min="0" step="0.0005" />
+          </label>
+          <label>
+            Max velocity mm/s
+            <input id="maxVelocityInput" type="number" min="0" step="0.1" />
+          </label>
+          <label>
+            Control sign
+            <select id="controlSignSelect">
+              <option value="1">+1</option>
+              <option value="-1">-1</option>
+            </select>
+          </label>
+          <label>
+            Process FPS
+            <input id="processFpsInput" type="number" min="1" max="30" step="1" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Best-Effort Camera Constraints</legend>
+          <p class="hint">
+            Browser support for exposure, white balance, gain, and focus is inconsistent.
+          </p>
+          <label>
+            Exposure mode
+            <select id="exposureModeSelect">
+              <option value="">No change</option>
+              <option value="manual">manual</option>
+              <option value="continuous">continuous</option>
+            </select>
+          </label>
+          <label>
+            Exposure time
+            <input id="exposureTimeInput" type="number" step="1" placeholder="if supported" />
+          </label>
+          <label>
+            White balance mode
+            <select id="whiteBalanceModeSelect">
+              <option value="">No change</option>
+              <option value="manual">manual</option>
+              <option value="continuous">continuous</option>
+            </select>
+          </label>
+          <label>
+            Color temperature
+            <input id="colorTemperatureInput" type="number" step="1" placeholder="if supported" />
+          </label>
+          <button id="applyCameraConstraintsButton" type="button" disabled>
+            Apply Constraints
+          </button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Firmware Serial</legend>
+          <p class="hint">
+            Auto control is disabled by default. Enable the motor first, then toggle auto control only when the stage is clear.
+          </p>
+          <div class="control-row">
+            <button id="connectSerialButton" type="button">Connect Board</button>
+            <button id="disconnectSerialButton" type="button" disabled>
+              Disconnect
+            </button>
+          </div>
+          <div class="control-row">
+            <button id="motorStatusButton" type="button" disabled>
+              Motor status
+            </button>
+            <button id="driverStatusButton" type="button" disabled>
+              Driver status
+            </button>
+          </div>
+          <div class="control-row">
+            <button id="motorEnableButton" type="button" disabled>
+              Enable
+            </button>
+            <button id="motorCalibrateAxisButton" type="button" disabled>
+              Calibrate Axis
+            </button>
+            <button id="motorStopButton" type="button" disabled>
+              Stop
+            </button>
+            <button id="motorDisableButton" type="button" disabled>
+              Disable
+            </button>
+          </div>
+          <button id="sendRecommendationButton" type="button" disabled>
+            Send Current Recommendation Once
+          </button>
+          <button id="autoControlButton" type="button" disabled>
+            Auto Control Off
+          </button>
+          <label>
+            Last firmware command
+            <textarea id="lastCommandOutput" rows="3" readonly></textarea>
+          </label>
+        </fieldset>
+      </section>
+
+      <section class="display-grid">
+        <article class="viewer">
+          <div class="viewer-header">
+            <h2>Overlay</h2>
+            <span id="trackingSummary">No frame</span>
+          </div>
+          <div class="canvas-wrap">
+            <video id="video" playsinline muted class="hidden"></video>
+            <canvas id="overlayCanvas"></canvas>
+          </div>
+        </article>
+
+        <article class="viewer">
+          <div class="viewer-header">
+            <h2>Binary Mask</h2>
+            <span>white = selected color range</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="maskCanvas"></canvas>
+          </div>
+        </article>
+      </section>
+
+      <section class="info-grid">
+        <article class="card">
+          <h2>Latest Tracking JSON</h2>
+          <pre id="jsonOutput">{}</pre>
+        </article>
+        <article class="card">
+          <h2>Camera Settings</h2>
+          <pre id="cameraOutput">Camera not started.</pre>
+        </article>
+        <article class="card">
+          <h2>Firmware Serial Log</h2>
+          <pre id="serialOutput">Serial not connected.</pre>
+        </article>
+      </section>
+
+      <canvas id="frameCanvas" class="hidden"></canvas>
+    </main>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

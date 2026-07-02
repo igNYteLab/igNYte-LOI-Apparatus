@@ -2,10 +2,9 @@
 
 Camera-related host software for the IgNYte-FPA system.
 
-Planned contents:
+Current contents:
 
-- Capture scripts or applications
-- Camera configuration notes
-- Image-processing utilities
-- Calibration assets and procedures
-
+- `opencv-js-prototype/`: standalone browser prototype for tracking the bottom
+  of an orange/yellow flame-like target with OpenCV.js. It can connect to the
+  ESP32-P4 over browser Web Serial, send manual motor commands, send one-shot
+  velocity recommendations, and toggle rate-limited auto control for bring-up.
