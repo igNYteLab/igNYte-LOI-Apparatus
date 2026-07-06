@@ -29,16 +29,24 @@ function loadOpenCv(): Promise<OpenCvModule> {
         window.setTimeout(attach, 30)
         return
       }
-      if (typeof cv.then === "function") {
-        // Promise-style build.
-        cv.then((ready: OpenCvModule) => resolve(ready)).catch(reject)
-        return
-      }
-      if (cv.Mat) {
+      if (typeof cv.Mat === "function") {
         resolve(cv) // Already initialized.
         return
       }
+      // OpenCV.js's module is an Emscripten "thenable", not a real Promise, so
+      // do NOT call cv.then(). Register the runtime-init callback and also poll
+      // for the Mat constructor as a robust fallback across builds.
       cv.onRuntimeInitialized = () => resolve(w.cv as OpenCvModule)
+      const startedAt = Date.now()
+      const poll = window.setInterval(() => {
+        if (typeof w.cv?.Mat === "function") {
+          window.clearInterval(poll)
+          resolve(w.cv as OpenCvModule)
+        } else if (Date.now() - startedAt > 30000) {
+          window.clearInterval(poll)
+          reject(new Error("OpenCV.js runtime did not initialize in time"))
+        }
+      }, 50)
     }
 
     const existing = document.getElementById(SCRIPT_ID)
