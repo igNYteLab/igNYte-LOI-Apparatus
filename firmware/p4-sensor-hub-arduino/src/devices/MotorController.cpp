@@ -74,29 +74,18 @@ void MotorController::service() {
     stepper_.setCurrentPosition(0);
     stopImmediately();
     disarmStallGuard();
-    if (mode == StallMotionMode::HomeSeek) {
-      startHomeBackoff(true);
-    } else {
-      cancelStallMotion();
-      if (mode == StallMotionMode::Test) {
-        motionEvent_ = MotorMotionEvent::StallTestEndstop;
-      }
+    cancelStallMotion();
+    if (mode == StallMotionMode::Test) {
+      motionEvent_ = MotorMotionEvent::StallTestEndstop;
     }
     return;
   }
 
-  if ((stallMotionMode_ == StallMotionMode::Test ||
-       stallMotionMode_ == StallMotionMode::HomeSeek) &&
-      diagInterruptPending_) {
-    const StallMotionMode mode = stallMotionMode_;
+  if (stallMotionMode_ == StallMotionMode::Test && diagInterruptPending_) {
     stopImmediately();
     disarmStallGuard();
-    if (mode == StallMotionMode::HomeSeek) {
-      startHomeBackoff(false);
-    } else {
-      cancelStallMotion();
-      motionEvent_ = MotorMotionEvent::StallDetected;
-    }
+    cancelStallMotion();
+    motionEvent_ = MotorMotionEvent::StallDetected;
     return;
   }
 
@@ -110,26 +99,12 @@ void MotorController::service() {
     return;
   }
 
-  if ((stallMotionMode_ == StallMotionMode::Test ||
-       stallMotionMode_ == StallMotionMode::HomeSeek) &&
+  if (stallMotionMode_ == StallMotionMode::Test &&
       labs(stepper_.currentPosition() - stallTestStartSteps_) >= stallTestMaxTravelSteps_) {
-    const StallMotionMode mode = stallMotionMode_;
     stopImmediately();
     cancelStallMotion();
-    motionEvent_ = mode == StallMotionMode::HomeSeek
-                       ? MotorMotionEvent::StallHomeTravelLimit
-                       : MotorMotionEvent::StallTestTravelLimit;
+    motionEvent_ = MotorMotionEvent::StallTestTravelLimit;
     return;
-  }
-
-  if (stallMotionMode_ == StallMotionMode::HomeBackoff &&
-      labs(stepper_.currentPosition() - stallTestStartSteps_) >= stallHomeBackoffSteps_) {
-    const bool endstopTriggered = stallHomeEndstopTriggered_;
-    stopImmediately();
-    stepper_.setCurrentPosition(0);
-    cancelStallMotion();
-    motionEvent_ = endstopTriggered ? MotorMotionEvent::StallHomeCompleteEndstop
-                                    : MotorMotionEvent::StallHomeComplete;
   }
 }
 
@@ -268,33 +243,6 @@ bool MotorController::startStallTest(float velocityMmS, float maxTravelMm) {
   return true;
 }
 
-bool MotorController::startStallHome(float maxTravelMm) {
-  if (!enabled_ || maxTravelMm <= 0.0f || maxTravelMm > Config::kMaxStallHomeTravelMm ||
-      calibrationActive() || velocityMode_ || stepper_.distanceToGo() != 0 ||
-      digitalRead(Pins::kMotorDiag) == HIGH) {
-    return false;
-  }
-
-  const long maxTravelSteps = static_cast<long>(maxTravelMm * Config::kStepsPerMm);
-  const long backoffSteps =
-      static_cast<long>(Config::kStallHomeBackoffMm * Config::kStepsPerMm);
-  if (maxTravelSteps <= 0 || backoffSteps <= 0) {
-    return false;
-  }
-
-  stopImmediately();
-  motionEvent_ = MotorMotionEvent::None;
-  stallTestStartSteps_ = stepper_.currentPosition();
-  stallTestMaxTravelSteps_ = maxTravelSteps;
-  stallHomeBackoffSteps_ = backoffSteps;
-  stallHomeEndstopTriggered_ = false;
-  stallMotionMode_ = StallMotionMode::HomeSeek;
-  velocityMode_ = true;
-  stepper_.setSpeed(Config::kStallHomeVelocityMmS * Config::kStepsPerMm);
-  armStallGuard();
-  return true;
-}
-
 bool MotorController::startAxisCalibration(float maxTravelMm) {
   if (!enabled_ || maxTravelMm <= 0.0f ||
       maxTravelMm > Config::kAxisCalibrationMaxTravelMm || velocityMode_ ||
@@ -325,11 +273,6 @@ bool MotorController::startAxisCalibration(float maxTravelMm) {
   stepper_.setSpeed(-fabsf(Config::kAxisCalibrationVelocityMmS) * Config::kStepsPerMm);
   armStallGuard();
   return true;
-}
-
-bool MotorController::stallHomeActive() const {
-  return stallMotionMode_ == StallMotionMode::HomeSeek ||
-         stallMotionMode_ == StallMotionMode::HomeBackoff;
 }
 
 MotorMotionEvent MotorController::takeMotionEvent() {
@@ -368,8 +311,6 @@ TmcStallDiagnostics MotorController::readStallDiagnostics() {
   diagnostics.diag_interrupt_pending = diagInterruptPending_;
   diagnostics.stall_guard_armed = diagInterruptArmed_;
   diagnostics.stall_test_active = stallMotionMode_ == StallMotionMode::Test;
-  diagnostics.stall_home_active = stallHomeActive();
-  diagnostics.stall_home_backing_off = stallMotionMode_ == StallMotionMode::HomeBackoff;
   diagnostics.enabled = enabled_;
   diagnostics.velocity_mode = velocityMode_;
   diagnostics.speed_mm_s = stepper_.speed() / Config::kStepsPerMm;
@@ -378,7 +319,6 @@ TmcStallDiagnostics MotorController::readStallDiagnostics() {
       Config::kStepsPerMm;
   diagnostics.stall_test_travel_mm =
       stallMotionMode_ == StallMotionMode::Test ? stallTravelMm : 0.0f;
-  diagnostics.stall_home_travel_mm = stallHomeActive() ? stallTravelMm : 0.0f;
   return diagnostics;
 }
 
@@ -411,14 +351,6 @@ void MotorController::setStallGuardThreshold(uint8_t threshold) {
   lockDriver();
   driver_.SGTHRS(threshold);
   unlockDriver();
-}
-
-void MotorController::startHomeBackoff(bool endstopTriggered) {
-  stallHomeEndstopTriggered_ = endstopTriggered;
-  stallTestStartSteps_ = stepper_.currentPosition();
-  stallMotionMode_ = StallMotionMode::HomeBackoff;
-  velocityMode_ = true;
-  stepper_.setSpeed(fabsf(Config::kStallHomeVelocityMmS) * Config::kStepsPerMm);
 }
 
 void MotorController::cancelAxisCalibration() {

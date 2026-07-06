@@ -14,14 +14,47 @@ Why:
 Verification:
 ```
 
+## 2026-07-06 - Remove Obsolete Motor JSON Commands
+
+What changed:
+
+- Removed public JSON command handling for `motor.move_steps`, `motor.driver_configure`, and `motor.stall_home`.
+- Removed the now-unreachable standalone StallGuard homing state machine, `StallHome*` motion events, homing-only config constants, and `stall_home_*` diagnostic fields.
+- Updated command references and project context so operators use `motor.target_mm` for absolute motion, boot-time driver configuration for TMC setup, and `motor.calibrate_axis` for the bounded two-ended calibration workflow.
+
+Why:
+
+These commands were bring-up/debug paths that are no longer part of the intended operator API. Keeping them documented and accepted increases the chance of bypassing the current calibrated-limits workflow.
+
+Verification:
+
+Normal `esp32-p4` PlatformIO build completed successfully after cleanup.
+
+## 2026-07-06 - Refactor Command Parser And Add Unit Tests
+
+What changed:
+
+- Moved JSON command parsing and validation from `main.cpp` into hardware-independent `CommandParser.h` / `CommandParser.cpp`.
+- Added a PlatformIO `native` environment that builds only the parser and runs Unity tests.
+- Added parser unit tests for valid motor commands, missing fields, invalid ranges, removed command rejection, flow percent clamping, calibration defaults, and `sensor.rate` behavior.
+- Updated GitHub Actions to run `pio test -d firmware/p4-sensor-hub-arduino -e native` after the firmware build.
+
+Why:
+
+Command parsing is logic that can be tested without ESP32 hardware. Moving it out of `main.cpp` reduces task/orchestration complexity and creates a practical unit-test target.
+
+Verification:
+
+Normal `esp32-p4` PlatformIO build completed successfully. Native parser unit tests passed locally after adding `C:\msys64\ucrt64\bin` to the active shell `PATH`.
+
 ## 2026-07-06 - Calibration Required For Normal Motor Motion
 
 What changed:
 
 - Normal target and velocity motor commands now require valid calibrated software limits before motion is accepted.
-- `motor.move_steps`, `motor.target_mm`, and nonzero `motor.velocity_mm_s` are rejected before axis calibration completes.
+- `motor.target_mm` and nonzero `motor.velocity_mm_s` are rejected before axis calibration completes.
 - Rejections report `calibration_incomplete`; velocity rejection also clears the velocity mailbox/watchdog state so a rejected command cannot arm stale motion control.
-- StallGuard test, StallGuard homing, and axis calibration remain available before calibration because they are the intended bounded bring-up paths.
+- StallGuard test and axis calibration remain available before calibration because they are the intended bounded bring-up paths.
 
 Why:
 

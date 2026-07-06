@@ -4,6 +4,7 @@
 #include <Wire.h>
 
 #include "AppConfig.h"
+#include "CommandParser.h"
 #include "Telemetry.h"
 #include "Timebase.h"
 #include "devices/IoExpander.h"
@@ -46,17 +47,14 @@ constexpr size_t kSensorCount = sizeof(sensors) / sizeof(sensors[0]);
 bool sensorOnline[kSensorCount] = {};
 
 enum class MotorCommandType {
-  MoveSteps,
   TargetMm,
   Stop,
   HomeHere,
   Enable,
   Disable,
   ReportStatus,
-  DriverConfigure,
   StallConfigure,
   StallTest,
-  StallHome,
   CalibrateAxis,
 };
 
@@ -267,8 +265,6 @@ void publishStallStatus() {
   doc["diag_interrupt_pending"] = diagnostics.diag_interrupt_pending;
   doc["stall_guard_armed"] = diagnostics.stall_guard_armed;
   doc["stall_test_active"] = diagnostics.stall_test_active;
-  doc["stall_home_active"] = diagnostics.stall_home_active;
-  doc["stall_home_backing_off"] = diagnostics.stall_home_backing_off;
   doc["spreadcycle_enabled"] = diagnostics.spreadcycle_enabled;
   doc["stall_window_active"] =
       !diagnostics.spreadcycle_enabled && diagnostics.tcoolthrs >= diagnostics.tstep &&
@@ -277,13 +273,11 @@ void publishStallStatus() {
   doc["velocity_mode"] = diagnostics.velocity_mode;
   doc["speed_mm_s"] = diagnostics.speed_mm_s;
   doc["stall_test_travel_mm"] = diagnostics.stall_test_travel_mm;
-  doc["stall_home_travel_mm"] = diagnostics.stall_home_travel_mm;
   telemetry.write(doc);
 }
 
 void publishMotorMotionEvent(MotorMotionEvent event) {
   const char* status = nullptr;
-  const char* homeSource = nullptr;
   switch (event) {
     case MotorMotionEvent::StallDetected:
       status = "stall_detected";
@@ -293,17 +287,6 @@ void publishMotorMotionEvent(MotorMotionEvent event) {
       break;
     case MotorMotionEvent::StallTestEndstop:
       status = "stall_test_endstop";
-      break;
-    case MotorMotionEvent::StallHomeComplete:
-      status = "stall_home_complete";
-      homeSource = "stallguard";
-      break;
-    case MotorMotionEvent::StallHomeCompleteEndstop:
-      status = "stall_home_complete";
-      homeSource = "endstop";
-      break;
-    case MotorMotionEvent::StallHomeTravelLimit:
-      status = "stall_home_not_detected";
       break;
     case MotorMotionEvent::AxisCalibrationMinSet:
       status = "axis_calibration_min_set";
@@ -336,9 +319,6 @@ void publishMotorMotionEvent(MotorMotionEvent event) {
   doc["limits_valid"] = motor.limitsValid();
   doc["min_limit_mm"] = motor.minLimitMm();
   doc["max_limit_mm"] = motor.maxLimitMm();
-  if (homeSource != nullptr) {
-    doc["home_source"] = homeSource;
-  }
   telemetry.write(doc);
 }
 
@@ -349,9 +329,6 @@ void applyMotorCommand(const MotorCommand& command) {
   }
 
   switch (command.type) {
-    case MotorCommandType::MoveSteps:
-      motor.moveToSteps(command.steps);
-      break;
     case MotorCommandType::TargetMm:
       motor.moveToMm(command.value);
       break;
@@ -372,10 +349,6 @@ void applyMotorCommand(const MotorCommand& command) {
     case MotorCommandType::ReportStatus:
       publishMotorState("state");
       break;
-    case MotorCommandType::DriverConfigure:
-      motor.configureDriver();
-      publishDriverStatus();
-      break;
     case MotorCommandType::StallConfigure:
       if (motor.configureStallGuard(static_cast<uint8_t>(command.steps), command.raw)) {
         publishStatus("motor", "stall_configured");
@@ -391,13 +364,6 @@ void applyMotorCommand(const MotorCommand& command) {
         publishStatus("motor", "stall_test_rejected", "check_enabled_idle_diag_and_limits");
       }
       break;
-    case MotorCommandType::StallHome:
-      if (motor.startStallHome(command.limit)) {
-        publishStatus("motor", "stall_home_started");
-      } else {
-        publishStatus("motor", "stall_home_rejected", "check_enabled_idle_diag_and_limits");
-      }
-      break;
     case MotorCommandType::CalibrateAxis:
       if (motor.startAxisCalibration(command.limit)) {
         publishMotorState("axis_calibration_started");
@@ -410,123 +376,77 @@ void applyMotorCommand(const MotorCommand& command) {
 
 // function to handle incoming commands; expects a JSON document with a "cmd" field and other parameters as needed
 void handleCommand(JsonDocument& doc) {
-  const char* cmd = doc["cmd"] | "";
+  const ParsedCommand command = parseCommand(doc);
+  if (command.type == ParsedCommandType::Invalid) {
+    publishStatus(command.errorComponent, command.errorStatus, command.errorDetail);
+    return;
+  }
 
-  if (strcmp(cmd, "motor.move_steps") == 0) {
-    if (!doc["steps"].is<long>()) {
-      publishStatus("motor", "missing_field", "steps");
-      return;
+  switch (command.type) {
+    case ParsedCommandType::MotorTargetMm:
+      queueMotorCommand({MotorCommandType::TargetMm, 0, command.value});
+      break;
+    case ParsedCommandType::MotorVelocityMmS:
+      queueMotorVelocityCommand(command.value);
+      break;
+    case ParsedCommandType::MotorStop:
+      queueMotorCommand({MotorCommandType::Stop, 0, 0.0f});
+      break;
+    case ParsedCommandType::MotorHomeHere:
+      queueMotorCommand({MotorCommandType::HomeHere, 0, 0.0f});
+      break;
+    case ParsedCommandType::MotorEnable:
+      queueMotorCommand({MotorCommandType::Enable, 0, 0.0f});
+      break;
+    case ParsedCommandType::MotorDisable:
+      queueMotorCommand({MotorCommandType::Disable, 0, 0.0f});
+      break;
+    case ParsedCommandType::MotorStatus:
+      queueMotorCommand({MotorCommandType::ReportStatus, 0, 0.0f});
+      break;
+    case ParsedCommandType::MotorDriverStatus:
+      publishDriverStatus();
+      break;
+    case ParsedCommandType::MotorStallStatus:
+      // Keep blocking UART diagnostics out of the motor pulse-generation task.
+      publishStallStatus();
+      break;
+    case ParsedCommandType::MotorStallConfig:
+      queueMotorCommand({MotorCommandType::StallConfigure, command.intValue, 0.0f, command.raw});
+      break;
+    case ParsedCommandType::MotorStallTest:
+      queueMotorCommand({MotorCommandType::StallTest, 0, command.value, 0, command.limit});
+      break;
+    case ParsedCommandType::MotorCalibrateAxis:
+      queueMotorCommand({MotorCommandType::CalibrateAxis, 0, 0.0f, 0, command.limit});
+      break;
+    case ParsedCommandType::SensorStatus:
+      publishSensorStatus();
+      break;
+    case ParsedCommandType::I2cScan:
+      publishI2cScan();
+      break;
+    case ParsedCommandType::FlowSet: {
+      const uint16_t raw = static_cast<uint16_t>((command.value / 100.0f) * 32000.0f);
+      const bool ok =
+          command.channel == 2 ? flow2.writeRawSetpoint(raw) : flow1.writeRawSetpoint(raw);
+      publishStatus(
+          command.channel == 2 ? "flow2" : "flow1",
+          ok ? "setpoint_ok" : "setpoint_failed");
+      break;
     }
-    queueMotorCommand({MotorCommandType::MoveSteps, doc["steps"].as<long>(), 0.0f});
-  } else if (strcmp(cmd, "motor.target_mm") == 0) {
-    if (!doc["mm"].is<float>()) {
-      publishStatus("motor", "missing_field", "mm");
-      return;
+    case ParsedCommandType::SensorRate: {
+      SensorBase* sensor = findSensor(command.name);
+      if (sensor != nullptr) {
+        sensor->setRateHz(command.hasIntValue ? command.intValue : sensor->rateHz());
+        publishStatus(command.name, "rate_updated");
+      } else {
+        publishStatus("sensor", "not_found", command.name);
+      }
+      break;
     }
-    queueMotorCommand({MotorCommandType::TargetMm, 0, doc["mm"].as<float>()});
-  } else if (strcmp(cmd, "motor.velocity_mm_s") == 0) {
-    if (!doc["mm_s"].is<float>()) {
-      publishStatus("motor", "missing_field", "mm_s");
-      return;
-    }
-    queueMotorVelocityCommand(doc["mm_s"].as<float>());
-  } else if (strcmp(cmd, "motor.stop") == 0) {
-    queueMotorCommand({MotorCommandType::Stop, 0, 0.0f});
-  } else if (strcmp(cmd, "motor.home_here") == 0) {
-    queueMotorCommand({MotorCommandType::HomeHere, 0, 0.0f});
-  } else if (strcmp(cmd, "motor.enable") == 0) {
-    queueMotorCommand({MotorCommandType::Enable, 0, 0.0f});
-  } else if (strcmp(cmd, "motor.disable") == 0) {
-    queueMotorCommand({MotorCommandType::Disable, 0, 0.0f});
-  } else if (strcmp(cmd, "motor.status") == 0) {
-    queueMotorCommand({MotorCommandType::ReportStatus, 0, 0.0f});
-  } else if (strcmp(cmd, "motor.driver_status") == 0) {
-    publishDriverStatus();
-  } else if (strcmp(cmd, "motor.driver_configure") == 0) {
-    queueMotorCommand({MotorCommandType::DriverConfigure, 0, 0.0f});
-  } else if (strcmp(cmd, "motor.stall_status") == 0) {
-    // Keep blocking UART diagnostics out of the motor pulse-generation task.
-    publishStallStatus();
-  } else if (strcmp(cmd, "motor.stall_config") == 0) {
-    if (!doc["sgthrs"].is<int>()) {
-      publishStatus("motor", "missing_field", "sgthrs");
-      return;
-    }
-    if (!doc["tcoolthrs"].is<long>()) {
-      publishStatus("motor", "missing_field", "tcoolthrs");
-      return;
-    }
-
-    const int threshold = doc["sgthrs"].as<int>();
-    const long coolThreshold = doc["tcoolthrs"].as<long>();
-    if (threshold < 0 || threshold > 255 || coolThreshold < 0 || coolThreshold > 0xFFFFF) {
-      publishStatus("motor", "invalid_field", "stall_config_range");
-      return;
-    }
-
-    queueMotorCommand(
-        {MotorCommandType::StallConfigure, threshold, 0.0f, static_cast<uint32_t>(coolThreshold)});
-  } else if (strcmp(cmd, "motor.stall_test") == 0) {
-    if (!doc["mm_s"].is<float>()) {
-      publishStatus("motor", "missing_field", "mm_s");
-      return;
-    }
-    if (!doc["max_travel_mm"].is<float>()) {
-      publishStatus("motor", "missing_field", "max_travel_mm");
-      return;
-    }
-
-    const float velocityMmS = doc["mm_s"].as<float>();
-    const float maxTravelMm = doc["max_travel_mm"].as<float>();
-    if (velocityMmS == 0.0f || fabsf(velocityMmS) > Config::kMaxStageSpeedMmS ||
-        maxTravelMm <= 0.0f || maxTravelMm > Config::kMaxStallTestTravelMm) {
-      publishStatus("motor", "invalid_field", "stall_test_range");
-      return;
-    }
-
-    queueMotorCommand({MotorCommandType::StallTest, 0, velocityMmS, 0, maxTravelMm});
-  } else if (strcmp(cmd, "motor.stall_home") == 0) {
-    if (!doc["max_travel_mm"].is<float>()) {
-      publishStatus("motor", "missing_field", "max_travel_mm");
-      return;
-    }
-
-    const float maxTravelMm = doc["max_travel_mm"].as<float>();
-    if (maxTravelMm <= 0.0f || maxTravelMm > Config::kMaxStallHomeTravelMm) {
-      publishStatus("motor", "invalid_field", "stall_home_range");
-      return;
-    }
-
-    queueMotorCommand({MotorCommandType::StallHome, 0, 0.0f, 0, maxTravelMm});
-  } else if (strcmp(cmd, "motor.calibrate_axis") == 0) {
-    const float maxTravelMm = doc["max_travel_mm"] | Config::kAxisCalibrationMaxTravelMm;
-    if (maxTravelMm <= 0.0f || maxTravelMm > Config::kAxisCalibrationMaxTravelMm) {
-      publishStatus("motor", "invalid_field", "axis_calibration_range");
-      return;
-    }
-
-    queueMotorCommand({MotorCommandType::CalibrateAxis, 0, 0.0f, 0, maxTravelMm});
-  } else if (strcmp(cmd, "sensor.status") == 0) {
-    publishSensorStatus();
-  } else if (strcmp(cmd, "i2c.scan") == 0) {
-    publishI2cScan();
-  } else if (strcmp(cmd, "flow.set") == 0) {
-    const uint8_t channel = doc["channel"] | 1;
-    const float pct = constrain(doc["pct"] | 0.0f, 0.0f, 100.0f);
-    const uint16_t raw = static_cast<uint16_t>((pct / 100.0f) * 32000.0f);
-    const bool ok = channel == 2 ? flow2.writeRawSetpoint(raw) : flow1.writeRawSetpoint(raw);
-    publishStatus(channel == 2 ? "flow2" : "flow1", ok ? "setpoint_ok" : "setpoint_failed");
-  } else if (strcmp(cmd, "sensor.rate") == 0) {
-    const char* sensorName = doc["sensor"] | "";
-    SensorBase* sensor = findSensor(sensorName);
-    if (sensor != nullptr) {
-      sensor->setRateHz(doc["hz"] | sensor->rateHz());
-      publishStatus(sensorName, "rate_updated");
-    } else {
-      publishStatus("sensor", "not_found", sensorName);
-    }
-  } else {
-    publishStatus("command", "unknown", cmd);
+    case ParsedCommandType::Invalid:
+      break;
   }
 }
 

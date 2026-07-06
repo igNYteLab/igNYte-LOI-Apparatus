@@ -102,26 +102,6 @@ Outputs:
 {"type":"status","t_us":123457,"component":"motor","status":"disabled","enabled":false,"endstop_active":false,"velocity_mode":false,"calibration_active":false,"limits_valid":false,"min_limit_mm":0,"max_limit_mm":0,"position_steps":0,"position_mm":0}
 ```
 
-### `motor.move_steps`
-
-Moves to an absolute target position in motor steps.
-
-Input fields:
-
-- `steps`: integer absolute target. Negative values are clamped to `0`.
-
-Input:
-
-```json
-{"cmd":"motor.move_steps","steps":3200}
-```
-
-Output:
-
-```json
-{"type":"status","t_us":123456,"component":"motor","status":"command_queued"}
-```
-
 ### `motor.target_mm`
 
 Moves to an absolute target position in millimeters.
@@ -242,35 +222,9 @@ Output:
 
 If `connection_ok` is false, TMC UART communication is not healthy and StallGuard configuration/readback should not be trusted.
 
-### `motor.driver_configure`
-
-Stops motion, cancels active StallGuard motion, and reapplies the default TMC2209 configuration from firmware constants.
-
-Current defaults include:
-
-- `SGTHRS=158`
-- `TCOOLTHRS=1500`
-- `600 mA RMS`
-- `8` microsteps
-- StealthChop enabled
-
-Input:
-
-```json
-{"cmd":"motor.driver_configure"}
-```
-
-Outputs:
-
-```json
-{"type":"status","t_us":123456,"component":"motor","status":"command_queued"}
-```
-
-Then a `motor.driver_status` response is emitted.
-
 ### `motor.stall_config`
 
-Configures the TMC2209 StallGuard threshold and lower velocity-window threshold. The motor must be stopped and no StallGuard test or homing sequence may be active.
+Configures the TMC2209 StallGuard threshold and lower velocity-window threshold. The motor must be stopped and no StallGuard test or axis calibration may be active.
 
 Input fields:
 
@@ -328,15 +282,12 @@ Output:
   "diag_interrupt_pending": false,
   "stall_guard_armed": false,
   "stall_test_active": false,
-  "stall_home_active": false,
-  "stall_home_backing_off": false,
   "spreadcycle_enabled": false,
   "stall_window_active": true,
   "enabled": true,
   "velocity_mode": true,
   "speed_mm_s": -2.0,
-  "stall_test_travel_mm": 0,
-  "stall_home_travel_mm": 0
+  "stall_test_travel_mm": 0
 }
 ```
 
@@ -384,57 +335,6 @@ Rejected output:
 
 ```json
 {"type":"status","t_us":123456,"component":"motor","status":"stall_test_rejected","detail":"check_enabled_idle_diag_and_limits"}
-```
-
-### `motor.stall_home`
-
-Runs bounded sensorless homing. The firmware seeks at the configured homing velocity, stops on StallGuard DIAG or the physical endstop, backs off one lead-screw revolution, and sets the backed-off position to `0`.
-
-Current homing settings:
-
-- Seek velocity: `-20.0 mm/s`
-- Backoff: `2.0 mm`
-- Maximum allowed command travel: `100 mm`
-
-Input fields:
-
-- `max_travel_mm`: positive travel limit, maximum `100`.
-
-Input:
-
-```json
-{"cmd":"motor.stall_home","max_travel_mm":70.0}
-```
-
-Start outputs:
-
-```json
-{"type":"status","t_us":123456,"component":"motor","status":"command_queued"}
-{"type":"status","t_us":123457,"component":"motor","status":"stall_home_started"}
-```
-
-Completion on StallGuard:
-
-```json
-{"type":"status","t_us":123458,"component":"motor","status":"stall_home_complete","position_steps":0,"position_mm":0,"endstop_active":false,"home_source":"stallguard"}
-```
-
-Completion on physical endstop:
-
-```json
-{"type":"status","t_us":123458,"component":"motor","status":"stall_home_complete","position_steps":0,"position_mm":0,"endstop_active":true,"home_source":"endstop"}
-```
-
-Travel limit without home:
-
-```json
-{"type":"status","t_us":123458,"component":"motor","status":"stall_home_not_detected","position_steps":80000,"position_mm":50.0,"endstop_active":false}
-```
-
-Rejected output:
-
-```json
-{"type":"status","t_us":123456,"component":"motor","status":"stall_home_rejected","detail":"check_enabled_idle_diag_and_limits"}
 ```
 
 ### `motor.calibrate_axis`

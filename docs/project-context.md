@@ -331,7 +331,7 @@ MS1/MS2 are also connected to an MCP23017 on the I2C bus. Current mapping:
 
 The MCP23017 address is currently `0x20`, configurable by jumper pads and stored in `Addresses::kMcp23017`. At boot, firmware sets MS1/MS2 from `Config::kMicrosteps`; for the current `8` microstep setting, MS1 is driven high and MS2 is driven low. The firmware also configures microsteps over TMC2209 UART so the physical pins and UART setting should agree.
 
-The motor driver and motor power supply must be on before the ESP32-P4 boots or before `motor.driver_configure` is run. If the TMC2209 is unpowered during initial firmware configuration, it can miss the UART microstep command and remain at a different driver setting than the firmware expects. Any mismatch between `Config::kMicrosteps` and `motor.driver_status` microstep readback changes the real millimeters-per-step scale, so after boot use `motor.driver_status` and confirm the reported `microsteps` matches `Config::kMicrosteps`.
+The motor driver and motor power supply must be on before the ESP32-P4 boots. If the TMC2209 is unpowered during initial firmware configuration, it can miss the UART microstep command and remain at a different driver setting than the firmware expects. Any mismatch between `Config::kMicrosteps` and `motor.driver_status` microstep readback changes the real millimeters-per-step scale, so after boot use `motor.driver_status` and confirm the reported `microsteps` matches `Config::kMicrosteps`.
 
 The expected stage is a vertical FUYU-style NEMA14 screw stage with a 2 mm lead. The endstop is currently assumed to be a bottom/home switch, so home is position `0 mm` and upward travel is positive.
 
@@ -343,25 +343,20 @@ Current motor commands:
 {"cmd":"motor.status"}
 {"cmd":"motor.enable"}
 {"cmd":"motor.disable"}
-{"cmd":"motor.move_steps","steps":1600}
 {"cmd":"motor.target_mm","mm":1.0}
 {"cmd":"motor.velocity_mm_s","mm_s":2.0}
 {"cmd":"motor.stop"}
 {"cmd":"motor.home_here"}
 {"cmd":"motor.driver_status"}
-{"cmd":"motor.driver_configure"}
 {"cmd":"motor.stall_config","sgthrs":158,"tcoolthrs":1500}
 {"cmd":"motor.stall_status"}
 {"cmd":"motor.stall_test","mm_s":-2.0,"max_travel_mm":5.0}
-{"cmd":"motor.stall_home","max_travel_mm":70.0}
 {"cmd":"motor.calibrate_axis"}
 ```
 
 Most motor commands are placed into a FreeRTOS queue and applied by `motorTask`. The current queue depth is 8. `motor.velocity_mm_s` is the exception: it uses a one-slot latest-wins mailbox plus a `2000 ms` watchdog so camera-control velocity commands do not build up stale motion.
 
 `motor.calibrate_axis` runs a full two-ended calibration sequence. It seeks the negative end using StallGuard DIAG or the physical endstop, backs off one lead-screw revolution, sets that point to `0 mm`, seeks the positive end, backs off, stores `max_limit_mm`, enables software limits, and moves to the calibrated center. After calibration, absolute targets are clamped to the calibrated range and velocity motion stops at either software limit.
-
-`motor.stall_home` moves toward home using the configured negative homing velocity, stops on StallGuard DIAG or the physical endstop, backs off one 2 mm screw revolution, and sets the backed-off position to zero. If neither source is reached before the travel bound, it reports `stall_home_not_detected` and does not reset position.
 
 `motor.stall_status` and `motor.driver_status` perform TMC UART reads outside the motor pulse-generation task so repeated diagnostics do not block step servicing. A healthy TMC UART should report `connection_ok:true`; if it reports false, StallGuard configuration/readback should not be trusted. For motion scale validation, `motor.driver_status` should report the same `microsteps` value as `Config::kMicrosteps`.
 
@@ -438,12 +433,10 @@ Commands are newline-delimited JSON sent from laptop to MCU over USB serial.
 Current examples:
 
 ```json
-{"cmd":"motor.move_steps","steps":1600}
 {"cmd":"motor.target_mm","mm":1.0}
 {"cmd":"motor.velocity_mm_s","mm_s":2.0}
 {"cmd":"motor.stop"}
 {"cmd":"motor.home_here"}
-{"cmd":"motor.stall_home","max_travel_mm":70.0}
 {"cmd":"motor.calibrate_axis"}
 {"cmd":"flow.set","channel":1,"pct":50}
 {"cmd":"sensor.rate","sensor":"tc1","hz":20}
@@ -504,9 +497,9 @@ Recommended order:
 6. For a future D6F-capable hardware revision, check D6F raw ADC and voltage against a multimeter.
 7. Power the motor driver/motor supply before boot, then test TMC2209 UART communication before motor movement.
 8. Run `motor.driver_status` and confirm `connection_ok:true` and `microsteps` matches `Config::kMicrosteps`.
-9. Test motor enable and one-step/small-step movement at low current.
+9. Test motor enable and small `motor.target_mm` movement at low current.
 10. Verify direction polarity.
-11. Verify endstop polarity and StallGuard homing behavior.
+11. Verify endstop polarity and StallGuard detection behavior.
 12. Test one Bronkhorst channel with read-measure only.
 13. Test Bronkhorst setpoint write at low/safe flow.
 14. Add a laptop logger that records JSONL with laptop receive timestamps.
@@ -530,10 +523,10 @@ GitHub Actions CI is configured in `.github/workflows/firmware-opencv.yml`.
 
 The workflow runs on `push` and `pull_request` and currently has two jobs:
 
-- Firmware PlatformIO build: installs PlatformIO on `ubuntu-latest` and runs `pio run -d firmware/p4-sensor-hub-arduino`.
+- Firmware PlatformIO build and tests: installs PlatformIO on `ubuntu-latest`, runs `pio run -d firmware/p4-sensor-hub-arduino`, and runs native parser unit tests with `pio test -d firmware/p4-sensor-hub-arduino -e native`.
 - OpenCV JS prototype checks: installs Node 22 and runs `node --check` on the browser prototype JavaScript modules.
 
-CI verifies that the firmware compiles and that the OpenCV prototype JavaScript parses. It does not flash hardware, run browser camera/Web Serial tests, validate real motor behavior, or prove sensor/flow hardware operation.
+CI verifies that the firmware compiles, command parser unit tests pass, and the OpenCV prototype JavaScript parses. It does not flash hardware, run browser camera/Web Serial tests, validate real motor behavior, or prove sensor/flow hardware operation.
 
 ## Files Added In The Current Scaffold
 
@@ -551,4 +544,5 @@ Key files:
 - `include/devices/MotorController.h`, `src/devices/MotorController.cpp`: TMC2209 and STEP/DIR stage wrapper
 - `include/devices/IoExpander.h`, `src/devices/IoExpander.cpp`: MCP23017 wrapper for motor MS1/MS2 setup
 - `include/devices/ProparAsciiClient.h`, `src/devices/ProparAsciiClient.cpp`: minimal Bronkhorst ASCII ProPar client
-- `src/main.cpp`: task creation, command parsing, sensor/flow/motor orchestration
+- `include/CommandParser.h`, `src/CommandParser.cpp`: hardware-independent JSON command parsing and validation
+- `src/main.cpp`: task creation, parsed command dispatch, sensor/flow/motor orchestration

@@ -92,20 +92,6 @@ Disables the motor driver. Disabling also requests a stop.
 {"cmd":"motor.disable"}
 ```
 
-#### `motor.move_steps`
-
-Moves to an absolute target position in motor steps.
-
-```json
-{"cmd":"motor.move_steps","steps":3200}
-```
-
-Fields:
-
-- `steps`: integer absolute target position.
-
-Negative step targets are clamped to `0`.
-
 #### `motor.target_mm`
 
 Moves to an absolute target position in millimeters.
@@ -172,17 +158,9 @@ Reads the TMC2209 UART connection and driver configuration.
 {"cmd":"motor.driver_status"}
 ```
 
-#### `motor.driver_configure`
-
-Stops motion and reapplies the default TMC2209 configuration. This restores `SGTHRS=158` and `TCOOLTHRS=1500`, disables any active StallGuard test, homing sequence, or axis calibration, and leaves the motor driver enable state unchanged.
-
-```json
-{"cmd":"motor.driver_configure"}
-```
-
 #### `motor.stall_config`
 
-Configures the TMC2209 StallGuard4 threshold and lower velocity-window register. The motor must be stopped and no StallGuard test, StallGuard homing sequence, axis calibration, velocity motion, or target move may be active.
+Configures the TMC2209 StallGuard4 threshold and lower velocity-window register. The motor must be stopped and no StallGuard test, axis calibration, velocity motion, or target move may be active.
 
 ```json
 {"cmd":"motor.stall_config","sgthrs":128,"tcoolthrs":1048575}
@@ -209,10 +187,8 @@ Important response fields:
 - `tstep`, `tcoolthrs`, `tpwmthrs`
 - `diag_gpio` (`50`) and current `diag_pin` level
 - `diag_interrupt_pending`, `stall_guard_armed`, `stall_test_active`
-- `stall_home_active`, `stall_home_backing_off`
 - `spreadcycle_enabled`, `stall_window_active`
 - `speed_mm_s`, `stall_test_travel_mm`
-- `stall_home_travel_mm`
 
 `stall_window_active` is a firmware convenience value indicating that the register readback currently satisfies the TMC2209 StallGuard4 mode/window condition. DIAG is handled as a pulse by a rising-edge GPIO interrupt; the current `diag_pin` level may already be low when status is requested.
 
@@ -238,34 +214,6 @@ The test finishes with one of these status values:
 - `stall_test_endstop`: the physical endstop stopped negative travel first.
 
 All completion paths disarm the interrupt. The driver remains enabled to hold the vertical stage.
-
-#### `motor.stall_home`
-
-Runs a complete bounded sensorless homing sequence using the configured StallGuard values:
-
-```json
-{"cmd":"motor.stall_home","max_travel_mm":70.0}
-```
-
-Fields:
-
-- `max_travel_mm`: required positive seek limit, no greater than `100 mm`. Set this only as large as needed to reach the home side from the current position.
-
-The motor must already be enabled and idle, and DIAG must be low. The sequence then:
-
-1. Moves toward home at `-20 mm/s` with StallGuard armed.
-2. Stops immediately on a DIAG pulse or physical endstop.
-3. Disarms StallGuard and moves `+2 mm`, equal to one configured lead-screw revolution.
-4. Sets the backed-off position to logical `0 mm`.
-
-Expected responses are:
-
-```json
-{"type":"status","component":"motor","status":"stall_home_started"}
-{"type":"status","component":"motor","status":"stall_home_complete","home_source":"stallguard","position_mm":0}
-```
-
-If the physical endstop is reached first, completion uses `"home_source":"endstop"`. If neither source is reached before the travel bound, the firmware stops and emits `stall_home_not_detected`; it does not set the position to zero.
 
 #### `motor.calibrate_axis`
 
@@ -688,14 +636,14 @@ The host should wait for `ready` or `ready_with_warnings` before sending normal 
 
 - The current firmware has no command IDs. A `command_queued` response only means the command was accepted into the motor queue, not that motion has completed.
 - For motor moves, host software should request `motor.status` after sending motion commands if it needs the current firmware position.
-- `motor.target_mm` and `motor.move_steps` are absolute commands.
+- `motor.target_mm` is an absolute command.
 - `motor.velocity_mm_s` uses a latest-wins mailbox and a `2000 ms` watchdog rather than the normal FIFO command queue.
 - The motor driver is intentionally disabled after boot. The host must send `motor.enable` before motion.
 - Negative absolute motor targets are clamped to `0`.
 - After `motor.calibrate_axis` succeeds, absolute targets are clamped to the calibrated range and velocity motion stops at calibrated software limits.
 - `motor.stop` is a controlled stop, not an emergency power cutoff.
 - TMC2209 bidirectional UART readback is required for driver and StallGuard diagnostics.
-- TMC2209 StallGuard4 is configured for StealthChop and starts with the tuned defaults `SGTHRS=158` and `TCOOLTHRS=1500`. DIAG is ignored during ordinary movement unless a bounded test, homing sequence, or axis calibration explicitly arms it.
+- TMC2209 StallGuard4 is configured for StealthChop and starts with the tuned defaults `SGTHRS=158` and `TCOOLTHRS=1500`. DIAG is ignored during ordinary movement unless a bounded test or axis calibration explicitly arms it.
 - GPIO 50 is the TMC2209 DIAG input. It is captured with a rising-edge interrupt only while StallGuard motion is active.
 
 ## StallGuard4 Bring-Up Procedure

@@ -1,6 +1,10 @@
 #pragma once
 
+#ifdef ARDUINO
 #include <Arduino.h>
+#else
+#include <cstdint>
+#endif
 
 #ifndef IGNYTE_MOTOR_ONLY_DEBUG
 #define IGNYTE_MOTOR_ONLY_DEBUG 0
@@ -76,9 +80,6 @@ constexpr uint8_t kAxisCalibrationSeekMinSgthrs = 158;
 constexpr uint8_t kAxisCalibrationSeekMaxSgthrs = 158;
 constexpr uint32_t kAxisCalibrationSeekMaxDiagIgnoreMs = 2000;
 constexpr uint32_t kStallGuardCoolThreshold = 1500;
-constexpr float kStallHomeVelocityMmS = -20.0f;
-constexpr float kStallHomeBackoffMm = kLeadScrewMmPerRev;
-constexpr float kMaxStallHomeTravelMm = 100.0f;
 constexpr bool kMotorDirectionInverted = true;
 constexpr bool kMotorEnableActiveLow = true;
 constexpr bool kEndstopActiveLow = true;

@@ -33,6 +33,9 @@ jobs:
       - name: Build firmware
         run: pio run -d firmware/p4-sensor-hub-arduino
 
+      - name: Run firmware unit tests
+        run: pio test -d firmware/p4-sensor-hub-arduino -e native
+
   camera-prototype:
     name: OpenCV JS prototype checks
     runs-on: ubuntu-latest
