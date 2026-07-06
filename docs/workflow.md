@@ -119,7 +119,9 @@ Current task intent:
 
 - motor task: highest priority, keeps motion responsive
 - command task: reads laptop commands
-- sensor task: polls sensors at each sensor's configured rate
+- fast I2C sensor task: polls short I2C reads for SHT45 and SEN0496
+- BME688 task: runs async BME688 start/finish reads
+- thermocouple task: polls MAX31856 thermocouple channels on SPI
 - flow task: polls Bronkhorst controllers
 - Arduino `loop()`: idle
 

@@ -48,6 +48,7 @@ enum class MotorMotionEvent {
   AxisCalibrationComplete,
   AxisCalibrationTravelLimit,
   SoftwareLimitHit,
+  CalibrationIncomplete,
 };
 
 class MotorController {

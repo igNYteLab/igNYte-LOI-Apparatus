@@ -174,7 +174,7 @@ Reads the TMC2209 UART connection and driver configuration.
 
 #### `motor.driver_configure`
 
-Stops motion and reapplies the default TMC2209 configuration. This restores `SGTHRS=65` and `TCOOLTHRS=1500`, disables any active StallGuard test, homing sequence, or axis calibration, and leaves the motor driver enable state unchanged.
+Stops motion and reapplies the default TMC2209 configuration. This restores `SGTHRS=158` and `TCOOLTHRS=1500`, disables any active StallGuard test, homing sequence, or axis calibration, and leaves the motor driver enable state unchanged.
 
 ```json
 {"cmd":"motor.driver_configure"}
@@ -226,8 +226,8 @@ Starts a bounded constant-velocity move and arms the GPIO 50 DIAG rising-edge in
 
 Fields:
 
-- `mm_s`: nonzero signed velocity, limited to `-8..8 mm/s`.
-- `max_travel_mm`: positive travel limit, no greater than `10 mm`.
+- `mm_s`: nonzero signed velocity, limited to `-25..25 mm/s`.
+- `max_travel_mm`: positive travel limit, no greater than `200 mm`.
 
 The motor must already be enabled and idle, and DIAG must be low before the test starts. The command is rejected otherwise. Ordinary movement commands never arm StallGuard.
 
@@ -253,7 +253,7 @@ Fields:
 
 The motor must already be enabled and idle, and DIAG must be low. The sequence then:
 
-1. Moves toward home at `-4 mm/s` with StallGuard armed.
+1. Moves toward home at `-20 mm/s` with StallGuard armed.
 2. Stops immediately on a DIAG pulse or physical endstop.
 3. Disarms StallGuard and moves `+2 mm`, equal to one configured lead-screw revolution.
 4. Sets the backed-off position to logical `0 mm`.
@@ -277,14 +277,14 @@ Runs full axis calibration and enables calibrated software limits.
 
 Optional field:
 
-- `max_travel_mm`: positive safety cap for each seek direction, no greater than `250 mm`. If omitted, firmware uses `250 mm`.
+- `max_travel_mm`: positive safety cap for each seek direction, no greater than `300 mm`. If omitted, firmware uses `300 mm`.
 
 The motor must already be enabled and idle, and DIAG must be low. The sequence:
 
-1. Seeks negative at `8 mm/s` until StallGuard DIAG or the physical endstop triggers.
+1. Seeks negative at `20 mm/s` until StallGuard DIAG or the physical endstop triggers.
 2. Backs off positive by `2 mm`.
 3. Sets that backed-off point to logical `0 mm`.
-4. Seeks positive at `8 mm/s` until StallGuard DIAG or the physical endstop triggers.
+4. Seeks positive at `20 mm/s` until StallGuard DIAG or the physical endstop triggers.
 5. Backs off negative by `2 mm`.
 6. Stores that backed-off point as `max_limit_mm`.
 7. Moves to the center of the calibrated range.
@@ -695,7 +695,7 @@ The host should wait for `ready` or `ready_with_warnings` before sending normal 
 - After `motor.calibrate_axis` succeeds, absolute targets are clamped to the calibrated range and velocity motion stops at calibrated software limits.
 - `motor.stop` is a controlled stop, not an emergency power cutoff.
 - TMC2209 bidirectional UART readback is required for driver and StallGuard diagnostics.
-- TMC2209 StallGuard4 is configured for StealthChop and starts with the tuned defaults `SGTHRS=65` and `TCOOLTHRS=1500`. DIAG is ignored during ordinary movement unless a bounded test, homing sequence, or axis calibration explicitly arms it.
+- TMC2209 StallGuard4 is configured for StealthChop and starts with the tuned defaults `SGTHRS=158` and `TCOOLTHRS=1500`. DIAG is ignored during ordinary movement unless a bounded test, homing sequence, or axis calibration explicitly arms it.
 - GPIO 50 is the TMC2209 DIAG input. It is captured with a rising-edge interrupt only while StallGuard motion is active.
 
 ## StallGuard4 Bring-Up Procedure
@@ -716,7 +716,7 @@ The host should wait for `ready` or `ready_with_warnings` before sending normal 
    {"cmd":"motor.stall_status"}
    ```
 
-   Expect `diag_gpio: 50`, `diag_pin: false`, `stall_guard_armed: false`, `sg_threshold: 65`, and `tcoolthrs: 1500`.
+   Expect `diag_gpio: 50`, `diag_pin: false`, `stall_guard_armed: false`, `sg_threshold: 158`, and `tcoolthrs: 1500`.
 
 4. Choose a fixed calibration velocity. With the configured 2 mm lead screw, `1 mm/s` equals one motor revolution every two seconds and is a reasonable initial value.
 5. Move at the calibration velocity and request `motor.stall_status` repeatedly while applying a controlled, gradually increasing mechanical load. Record the lowest `SG_RESULT` before a stall, then stop the motor.

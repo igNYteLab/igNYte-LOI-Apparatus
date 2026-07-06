@@ -14,6 +14,39 @@ Why:
 Verification:
 ```
 
+## 2026-07-06 - Calibration Required For Normal Motor Motion
+
+What changed:
+
+- Normal target and velocity motor commands now require valid calibrated software limits before motion is accepted.
+- `motor.move_steps`, `motor.target_mm`, and nonzero `motor.velocity_mm_s` are rejected before axis calibration completes.
+- Rejections report `calibration_incomplete`; velocity rejection also clears the velocity mailbox/watchdog state so a rejected command cannot arm stale motion control.
+- StallGuard test, StallGuard homing, and axis calibration remain available before calibration because they are the intended bounded bring-up paths.
+
+Why:
+
+Manual target/velocity motion before calibration has no trusted software travel limits. Requiring valid limits prevents ordinary motion commands from bypassing the calibrated operating range.
+
+Verification:
+
+Normal `esp32-p4` PlatformIO build completed successfully. Motor-only debug build is intended to be verified locally before use.
+
+## 2026-07-06 - Documentation Drift Sync
+
+What changed:
+
+- Updated motor protocol docs to match current firmware constants: `8` microsteps, `800 steps/mm`, `SGTHRS=158`, `25 mm/s` max stage speed, `20 mm/s` calibration speed, `200 mm` stall-test travel, and `300 mm` axis-calibration travel.
+- Updated `docs/project-context.md` with the current motor scaling, generalized the TMC2209 boot-power warning, and added the GitHub Actions CI description.
+- Updated `docs/possible-issues.md`, `docs/workflow.md`, `docs/README.md`, and the OpenCV prototype README to remove stale microstep/task/controller descriptions.
+
+Why:
+
+Firmware, CI, and OpenCV control behavior moved faster than the Markdown references. The docs needed to match the current source before the next push.
+
+Verification:
+
+Compared docs against `firmware/p4-sensor-hub-arduino/include/AppConfig.h`, `firmware/p4-sensor-hub-arduino/src/main.cpp`, `.github/workflows/firmware-opencv.yml`, and the OpenCV prototype source.
+
 ## 2026-07-02 - Axis Calibration DIAG Re-Arm Guard
 
 What changed:

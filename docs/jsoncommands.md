@@ -236,7 +236,7 @@ Output:
   "version": 33,
   "drv_status": 0,
   "rms_current_ma": 600,
-  "microsteps": 4
+  "microsteps": 8
 }
 ```
 
@@ -251,7 +251,7 @@ Current defaults include:
 - `SGTHRS=158`
 - `TCOOLTHRS=1500`
 - `600 mA RMS`
-- `4` microsteps
+- `8` microsteps
 - StealthChop enabled
 
 Input:
@@ -317,8 +317,8 @@ Output:
   "component": "motor",
   "status": "stall_status",
   "sg_result": 90,
-  "sg_threshold": 65,
-  "effective_sg_threshold": 130,
+  "sg_threshold": 158,
+  "effective_sg_threshold": 316,
   "tstep": 600,
   "tcoolthrs": 1500,
   "tpwmthrs": 0,
@@ -346,7 +346,7 @@ Starts a bounded constant-velocity StallGuard test and arms the DIAG GPIO 50 int
 
 Input fields:
 
-- `mm_s`: nonzero signed velocity, limited to `-20..20`.
+- `mm_s`: nonzero signed velocity, limited to `-25..25`.
 - `max_travel_mm`: positive travel limit, maximum `200`.
 
 Input:

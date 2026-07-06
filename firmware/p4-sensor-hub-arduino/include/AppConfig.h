@@ -2,6 +2,10 @@
 
 #include <Arduino.h>
 
+#ifndef IGNYTE_MOTOR_ONLY_DEBUG
+#define IGNYTE_MOTOR_ONLY_DEBUG 0
+#endif
+
 namespace Pins {
 constexpr uint8_t kI2cSda = 7;
 constexpr uint8_t kI2cScl = 8;
@@ -56,11 +60,11 @@ constexpr uint8_t kBronkhorstNodePointToPoint = 0x80;
 
 constexpr float kStepperFullStepsPerRev = 200.0f;
 constexpr float kLeadScrewMmPerRev = 2.0f;
-constexpr uint16_t kMicrosteps = 4;
+constexpr uint16_t kMicrosteps = 8;
 constexpr float kStepsPerMm =
     (kStepperFullStepsPerRev * static_cast<float>(kMicrosteps)) / kLeadScrewMmPerRev;
 
-constexpr float kMaxStageSpeedMmS = 20.0f;
+constexpr float kMaxStageSpeedMmS = 25.0f;
 constexpr float kMaxStageAccelMmS2 = 20.0f;
 constexpr uint32_t kMotorVelocityCommandTimeoutMs = 2000;
 constexpr float kAxisCalibrationVelocityMmS = 20.0f;

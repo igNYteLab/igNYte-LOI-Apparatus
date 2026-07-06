@@ -70,11 +70,11 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 **Status:** partially mitigated, still hardware-dependent.
 
-**Risk:** firmware assumes `Config::kMicrosteps = 16`, and MS1/MS2 must match that setting.
+**Risk:** firmware assumes `Config::kMicrosteps = 8`, and MS1/MS2 plus the TMC2209 UART-configured microstep value must match that setting.
 
 **Current hardware:** MCP23017 address `0x20`; MS1 = GPA1/A1, MS2 = GPA0/A0. Address can change via jumper pads.
 
-**Current code:** `IoExpander` sets MS1/MS2 from `Config::kMicrosteps`; for 1/16, both are driven high before `motor.begin()`.
+**Current code:** `IoExpander` sets MS1/MS2 from `Config::kMicrosteps`; for 1/8, MS1 is driven high and MS2 is driven low before `motor.begin()`. The firmware also writes the microstep setting over TMC2209 UART.
 
 **Remaining risk:** if the MCP23017 is missing or UART config fails, the driver may use an unexpected fallback microstep mode.
 
@@ -100,11 +100,11 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 **Status:** partially verified.
 
-**Risk:** current assumption is 200 steps/rev, 16 microsteps, 2 mm lead, 1600 steps/mm.
+**Risk:** current assumption is 200 steps/rev, 8 microsteps, 2 mm lead, 800 steps/mm.
 
 **Verified/fixed:** direction convention was tested and `Config::kMotorDirectionInverted=true` is the current intended setting.
 
-**Still open:** measure actual stage travel to validate `1600 steps/mm` and the 2 mm lead assumption under real load.
+**Still open:** measure actual stage travel to validate `800 steps/mm` and the 2 mm lead assumption under real load.
 
 ### BME688 Address
 

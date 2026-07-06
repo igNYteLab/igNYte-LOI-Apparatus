@@ -141,6 +141,10 @@ void MotorController::stop() {
 }
 
 void MotorController::moveToSteps(long steps) {
+  if (!limitsValid_) {
+    motionEvent_ = MotorMotionEvent::CalibrationIncomplete;
+    return;
+  }
   cancelStallMotion();
   cancelAxisCalibration();
   velocityMode_ = false;
@@ -152,6 +156,10 @@ void MotorController::moveToMm(float mm) {
 }
 
 void MotorController::setVelocityMmS(float velocityMmS) {
+  if (!limitsValid_) {
+    motionEvent_ = MotorMotionEvent::CalibrationIncomplete;
+    return;
+  }
   cancelStallMotion();
   cancelAxisCalibration();
   if (limitsValid_) {

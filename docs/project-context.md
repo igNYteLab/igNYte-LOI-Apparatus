@@ -309,9 +309,9 @@ Current mechanical assumptions:
 | --- | ---: |
 | Motor full steps/rev | 200 |
 | Lead screw | 2 mm/rev |
-| Microsteps | 4 |
-| Steps/mm | 400 |
-| Max speed | 20 mm/s |
+| Microsteps | 8 |
+| Steps/mm | 800 |
+| Max speed | 25 mm/s |
 | Max acceleration | 20 mm/s^2 |
 | StallGuard threshold | SGTHRS 158 |
 | StallGuard cool threshold | TCOOLTHRS 1500 |
@@ -329,9 +329,9 @@ MS1/MS2 are also connected to an MCP23017 on the I2C bus. Current mapping:
 | MS2 | GPA0 / A0 |
 | MS1 | GPA1 / A1 |
 
-The MCP23017 address is currently `0x20`, configurable by jumper pads and stored in `Addresses::kMcp23017`. At boot, firmware sets MS1/MS2 from `Config::kMicrosteps`; for the current `4` microstep setting, MS1 is driven low and MS2 is driven high. The firmware also configures microsteps over TMC2209 UART so the physical pins and UART setting should agree.
+The MCP23017 address is currently `0x20`, configurable by jumper pads and stored in `Addresses::kMcp23017`. At boot, firmware sets MS1/MS2 from `Config::kMicrosteps`; for the current `8` microstep setting, MS1 is driven high and MS2 is driven low. The firmware also configures microsteps over TMC2209 UART so the physical pins and UART setting should agree.
 
-The motor driver and motor power supply must be on before the ESP32-P4 boots or before `motor.driver_configure` is run. If the TMC2209 is unpowered during initial firmware configuration, it misses the UART microstep command and can stay at its default/readback value of `8` microsteps. That makes firmware calculate motion using `400 steps/mm` while the real driver behaves like `800 steps/mm`, so a `100 mm` target moves about `50 mm`. After boot, use `motor.driver_status` and confirm the reported `microsteps` matches `Config::kMicrosteps`.
+The motor driver and motor power supply must be on before the ESP32-P4 boots or before `motor.driver_configure` is run. If the TMC2209 is unpowered during initial firmware configuration, it can miss the UART microstep command and remain at a different driver setting than the firmware expects. Any mismatch between `Config::kMicrosteps` and `motor.driver_status` microstep readback changes the real millimeters-per-step scale, so after boot use `motor.driver_status` and confirm the reported `microsteps` matches `Config::kMicrosteps`.
 
 The expected stage is a vertical FUYU-style NEMA14 screw stage with a 2 mm lead. The endstop is currently assumed to be a bottom/home switch, so home is position `0 mm` and upward travel is positive.
 
@@ -350,7 +350,7 @@ Current motor commands:
 {"cmd":"motor.home_here"}
 {"cmd":"motor.driver_status"}
 {"cmd":"motor.driver_configure"}
-{"cmd":"motor.stall_config","sgthrs":65,"tcoolthrs":1500}
+{"cmd":"motor.stall_config","sgthrs":158,"tcoolthrs":1500}
 {"cmd":"motor.stall_status"}
 {"cmd":"motor.stall_test","mm_s":-2.0,"max_travel_mm":5.0}
 {"cmd":"motor.stall_home","max_travel_mm":70.0}
@@ -514,22 +514,26 @@ Recommended order:
 16. Run `motor.calibrate_axis` and validate calibrated software limits before closed-loop camera tracking.
 17. Add safety limits for flow range and a true emergency-stop path.
 
-## Current Build Status
+## Firmware Build Command
 
-As of the last verification, `firmware/p4-sensor-hub-arduino` builds successfully with:
-
-```text
-C:\Users\llane\.platformio\penv\Scripts\pio.exe run
-```
-
-Observed build metrics from the most recent successful build:
+The PlatformIO firmware build command is:
 
 ```text
-RAM:   8.6%
-Flash: 32.5%
+pio run -d firmware/p4-sensor-hub-arduino
 ```
 
-The build success proves the current source, dependency declarations, and PlatformIO setup are coherent. It does not prove hardware behavior.
+A successful build proves the current source, dependency declarations, and PlatformIO setup are coherent. It does not prove hardware behavior.
+
+## Continuous Integration
+
+GitHub Actions CI is configured in `.github/workflows/firmware-opencv.yml`.
+
+The workflow runs on `push` and `pull_request` and currently has two jobs:
+
+- Firmware PlatformIO build: installs PlatformIO on `ubuntu-latest` and runs `pio run -d firmware/p4-sensor-hub-arduino`.
+- OpenCV JS prototype checks: installs Node 22 and runs `node --check` on the browser prototype JavaScript modules.
+
+CI verifies that the firmware compiles and that the OpenCV prototype JavaScript parses. It does not flash hardware, run browser camera/Web Serial tests, validate real motor behavior, or prove sensor/flow hardware operation.
 
 ## Files Added In The Current Scaffold
 

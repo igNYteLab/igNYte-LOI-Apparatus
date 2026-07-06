@@ -23,7 +23,7 @@ export const DEFAULT_CONFIG = {
     setpointYNorm: 0.5,
     deadbandPx: 2,
     kpMmSPerPx: 0.1,
-    kiMmSPerPxS: 0.03,
+    kiMmSPerPxS: 0.01,
     maxIntegralErrorPxS: 1000,
     maxVelocityMmS: 25.0,
     controlSign: -1,

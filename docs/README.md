@@ -2,11 +2,11 @@
 
 Project documentation for the IgNYte-FPA system.
 
-Planned contents:
+Current contents:
 
-- System architecture notes
-- Wiring and interface references
-- Calibration procedures
-- Test procedures and results
-- Safety and operating notes
-
+- `project-context.md`: current system architecture, firmware layout, pin maps, motor assumptions, CI status, and bring-up notes.
+- `firmware-serial-protocol.md`: detailed newline-delimited JSON serial protocol reference.
+- `jsoncommands.md`: shorter operator-facing JSON command quick reference.
+- `possible-issues.md`: open risks, hardware concerns, and follow-up validation items.
+- `change-log.md`: confirmed fixes and meaningful design changes.
+- `workflow.md`: development workflow and review checklist for firmware changes.

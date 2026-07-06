@@ -112,14 +112,25 @@ When tracking is lost:
 }
 ```
 
-## Control Sign
+## Controller Mode And Control Sign
 
-The prototype computes:
+The prototype can switch between a proportional controller and a proportional-integral controller.
+
+In P mode, it computes:
 
 ```text
 error_y_px = target_bottom_y_px - setpoint_y_px
 velocity_mm_s = control_sign * kp_mm_s_per_px * error_y_px
 ```
+
+In PI mode, it also accumulates error over time:
+
+```text
+integral_error_px_s += error_y_px * dt_s
+velocity_mm_s = control_sign * (kp_mm_s_per_px * error_y_px + ki_mm_s_per_px_s * integral_error_px_s)
+```
+
+The PI integral state resets when tracking is lost, when the error enters the deadband, when the camera starts/stops, when auto control is toggled, and when the controller mode changes. The accumulated integral is clamped by `maxIntegralErrorPxS` from `src/config.js`.
 
 `control_sign` is configurable because the relationship between image error and motor command direction must be validated on the real stage.
 
@@ -131,7 +142,7 @@ Use Chrome or Edge for Web Serial support. Connect the board, enable the motor m
 - `Auto Control Off/On` to repeatedly send the current recommendation at `autoControlHz` from `src/config.js`.
 - `Calibrate Axis` to send `{"cmd":"motor.calibrate_axis"}` after turning off auto control.
 
-Turning auto control off, stopping the camera, clicking `Stop`, clicking `Disable`, or disconnecting serial sends zero velocity first.
+Turning auto control off sends zero velocity first. Stopping the camera, clicking `Stop`, clicking `Disable`, or disconnecting serial also sends zero velocity first if auto control was active; otherwise those controls send their direct firmware command.
 
 The serial log prints `calibrate clicked` before the calibration command is attempted. If that line appears without a following `> {"cmd":"motor.calibrate_axis"}`, the button handler fired but the serial write path failed.
 
@@ -142,7 +153,7 @@ The serial log prints `calibrate clicked` before the calibration command is atte
 - `src/config.js`: centralized default camera, detector, and controller values.
 - `src/app.js`: camera setup, OpenCV startup, processing loop, UI wiring.
 - `src/detector.js`: HSV thresholding, morphology, contour selection, bottom-point detection.
-- `src/controller.js`: one-axis error and velocity recommendation.
+- `src/controller.js`: one-axis P/PI error and velocity recommendation.
 - `src/messages.js`: stable JSON message builder.
 - `src/serial.js`: Web Serial connection, firmware command builders, serial log, and recommendation-to-command conversion.
 
