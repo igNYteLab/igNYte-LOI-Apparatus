@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 
 import type { OpenCvModule } from "@/lib/vision/opencv-types"
 
@@ -69,37 +69,40 @@ function loadOpenCv(): Promise<OpenCvModule> {
 
 export type OpenCvState = {
   cv: OpenCvModule | null
-  status: "loading" | "ready" | "error"
+  status: "idle" | "loading" | "ready" | "error"
   error: string | null
+  /** Kick off the (heavy) OpenCV.js download + WASM compile. */
+  load: () => void
 }
 
-/** React hook: lazily loads OpenCV.js and reports readiness. */
+/**
+ * Loads OpenCV.js on demand — call `load()`. Loading is explicit because the
+ * ~8 MB WASM compile briefly blocks the main thread, and we don't want that to
+ * happen just by opening the Vision tab.
+ */
 export function useOpenCv(): OpenCvState {
-  const [state, setState] = useState<OpenCvState>({
-    cv: null,
-    status: "loading",
-    error: null,
-  })
+  const [state, setState] = useState<{
+    cv: OpenCvModule | null
+    status: "idle" | "loading" | "ready" | "error"
+    error: string | null
+  }>({ cv: null, status: "idle", error: null })
+  const startedRef = useRef(false)
 
-  useEffect(() => {
-    let active = true
+  const load = useCallback(() => {
+    if (startedRef.current) return
+    startedRef.current = true
+    setState((prev) => ({ ...prev, status: "loading", error: null }))
     loadOpenCv()
-      .then((cv) => {
-        if (active) setState({ cv, status: "ready", error: null })
-      })
+      .then((cv) => setState({ cv, status: "ready", error: null }))
       .catch((err: unknown) => {
-        if (active) {
-          setState({
-            cv: null,
-            status: "error",
-            error: err instanceof Error ? err.message : "OpenCV.js failed to load",
-          })
-        }
+        startedRef.current = false
+        setState({
+          cv: null,
+          status: "error",
+          error: err instanceof Error ? err.message : "OpenCV.js failed to load",
+        })
       })
-    return () => {
-      active = false
-    }
   }, [])
 
-  return state
+  return { ...state, load }
 }

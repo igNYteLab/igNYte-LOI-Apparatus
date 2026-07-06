@@ -77,7 +77,7 @@ export function VisionPanel({
   sendCommand: (command: string) => Promise<void>
   disableRef: React.MutableRefObject<(() => void) | null>
 }) {
-  const { cv, status: cvStatus, error: cvError } = useOpenCv()
+  const { cv, status: cvStatus, error: cvError, load: loadCv } = useOpenCv()
   const tracker = useFlameTracker({ cv, connected, sendCommand })
   const {
     config,
@@ -207,13 +207,17 @@ export function VisionPanel({
               >
                 <IconCameraOff /> Stop camera
               </Button>
+            ) : cvStatus === "ready" ? (
+              <Button size="sm" onClick={() => void tracker.startCamera()}>
+                <IconCamera /> Start camera
+              </Button>
             ) : (
               <Button
                 size="sm"
-                disabled={!cvReady}
-                onClick={() => void tracker.startCamera()}
+                disabled={cvStatus === "loading"}
+                onClick={() => loadCv()}
               >
-                <IconCamera /> Start camera
+                {cvStatus === "loading" ? "Loading OpenCV…" : "Load vision engine"}
               </Button>
             )}
             <Button

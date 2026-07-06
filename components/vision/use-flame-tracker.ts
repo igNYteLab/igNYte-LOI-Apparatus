@@ -134,6 +134,7 @@ export function useFlameTracker(params: {
 
   const streamRef = useRef<MediaStream | null>(null)
   const lastProcessMsRef = useRef(0)
+  const lastStatusMsRef = useRef(0)
   const frameIdRef = useRef(0)
   const controllerStateRef = useRef<ControllerState>(resetControllerState())
   const emaFpsRef = useRef(0)
@@ -235,15 +236,20 @@ export function useFlameTracker(params: {
       ? emaFpsRef.current * 0.8 + instFps * 0.2
       : instFps
 
-    setStatus({
-      tracking: detection.tracking,
-      confidence: detection.confidence,
-      errorYPx: result.errorYPx,
-      recommendation: result.recommendation,
-      setpointYPx: result.setpointYPx,
-      processedFps: emaFpsRef.current,
-      message,
-    })
+    // Throttle React status updates (~5 Hz) so the control panel doesn't
+    // re-render on every processed frame; the canvases already drew above.
+    if (now - lastStatusMsRef.current >= 200) {
+      lastStatusMsRef.current = now
+      setStatus({
+        tracking: detection.tracking,
+        confidence: detection.confidence,
+        errorYPx: result.errorYPx,
+        recommendation: result.recommendation,
+        setpointYPx: result.setpointYPx,
+        processedFps: emaFpsRef.current,
+        message,
+      })
+    }
   }, [])
 
   // Drive processing with requestAnimationFrame while the camera runs.

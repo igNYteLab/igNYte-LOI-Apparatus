@@ -43,7 +43,9 @@ export type VisionConfig = {
 }
 
 export const DEFAULT_VISION_CONFIG: VisionConfig = {
-  camera: { widthPx: 1920, heightPx: 1080, fps: 30 },
+  // Kept modest: OpenCV runs on the main thread per frame, so smaller frames
+  // keep the UI responsive. Raise if you need finer tracking and have headroom.
+  camera: { widthPx: 640, heightPx: 480, fps: 30 },
   detector: {
     hsvLow: { h: 5, s: 80, v: 80 },
     hsvHigh: { h: 45, s: 255, v: 255 },
