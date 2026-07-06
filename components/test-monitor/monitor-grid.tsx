@@ -16,6 +16,7 @@ import {
   IconPlayerStop,
   IconRefresh,
   IconScan,
+  IconTargetArrow,
   IconTemperature,
   IconTerminal2,
   IconWind,
@@ -27,6 +28,7 @@ import {
   CameraCard,
   type CameraController,
 } from "@/components/test-monitor/camera-card"
+import { VisionPanel } from "@/components/vision/vision-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -167,6 +169,8 @@ export function MonitorGrid({ context }: MonitorGridProps) {
   const rgbCameraRef = React.useRef<CameraController | null>(null)
   const recorderRef = React.useRef<MediaRecorder | null>(null)
   const chunksRef = React.useRef<Blob[]>([])
+  // Set by the Vision tab so E-STOP can drop auto-control instantly.
+  const visionDisableRef = React.useRef<(() => void) | null>(null)
 
   const [safetyOpen, setSafetyOpen] = React.useState(false)
   const [checkedItems, setCheckedItems] = React.useState<boolean[]>(
@@ -256,6 +260,8 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       toast.error("Connect the board first.")
       return
     }
+    // Drop vision auto-control first so it can't keep commanding velocity.
+    visionDisableRef.current?.()
     const commands = [
       fw.motorStop(),
       fw.motorDisable(),
@@ -463,6 +469,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
               <TabsTrigger value="config">
                 <IconAdjustments data-icon="inline-start" />
                 Config
+              </TabsTrigger>
+              <TabsTrigger value="vision">
+                <IconTargetArrow data-icon="inline-start" />
+                Vision
               </TabsTrigger>
             </TabsList>
             {!connected ? (
@@ -688,6 +698,14 @@ export function MonitorGrid({ context }: MonitorGridProps) {
               onSend={(command) => void send(command)}
             />
           </div>
+        </TabsContent>
+
+        <TabsContent value="vision" className="min-h-0 overflow-auto">
+          <VisionPanel
+            connected={connected}
+            sendCommand={sendCommand}
+            disableRef={visionDisableRef}
+          />
         </TabsContent>
       </Tabs>
 

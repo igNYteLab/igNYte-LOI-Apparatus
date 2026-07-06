@@ -293,6 +293,9 @@ export const fw = {
       cmd: "motor.stall_home",
       max_travel_mm: clampNum(max_travel_mm, 0, 100),
     }),
+  /** Axis calibration used by the vision auto-control bring-up path.
+   *  (Referenced by the OpenCV prototype; confirm the firmware supports it.) */
+  motorCalibrateAxis: () => json({ cmd: "motor.calibrate_axis" }),
 
   // Flow controllers
   /** channel 1 or 2 (defaults to 1); pct is clamped to 0..100. */
