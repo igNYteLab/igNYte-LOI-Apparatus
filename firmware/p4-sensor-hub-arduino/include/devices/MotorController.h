@@ -87,6 +87,7 @@ class MotorController {
   void startCalibrationMaxBackoff();
   bool enforceSoftwareLimits();
   long clampToSoftwareLimits(long steps);
+  void serviceVelocityRamp();
   void stopImmediately();
   void lockDriver();
   void unlockDriver();
@@ -113,6 +114,9 @@ class MotorController {
   AccelStepper stepper_;
   SemaphoreHandle_t driverMutex_ = nullptr;
   bool velocityMode_ = false;
+  float targetVelocityMmS_ = 0.0f;
+  float appliedVelocityMmS_ = 0.0f;
+  uint32_t lastVelocityRampUs_ = 0;
   bool enabled_ = false;
   StallMotionMode stallMotionMode_ = StallMotionMode::None;
   AxisCalibrationMode calibrationMode_ = AxisCalibrationMode::None;

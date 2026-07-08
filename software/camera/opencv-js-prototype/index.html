@@ -106,6 +106,17 @@
             Ki mm/s/(px*s)
             <input id="kiInput" type="number" min="0" step="0.0005" />
           </label>
+          <button id="feedforwardButton" type="button">
+            Feedforward Off
+          </button>
+          <label>
+            Feedforward gain
+            <input id="feedforwardGainInput" type="number" min="0" step="0.05" />
+          </label>
+          <label>
+            mm per px
+            <input id="mmPerPxInput" type="number" min="0.0001" step="0.0001" />
+          </label>
           <label>
             Max velocity mm/s
             <input id="maxVelocityInput" type="number" min="0" step="0.1" />

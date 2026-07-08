@@ -132,6 +132,25 @@ velocity_mm_s = control_sign * (kp_mm_s_per_px * error_y_px + ki_mm_s_per_px_s *
 
 The PI integral state resets when tracking is lost, when the error enters the deadband, when the camera starts/stops, when auto control is toggled, and when the controller mode changes. The accumulated integral is clamped by `maxIntegralErrorPxS` from `src/config.js`.
 
+Feedforward can be toggled separately from P/PI. It estimates the flame's real image-plane velocity by adding the measured image velocity to the estimated applied camera velocity converted back into pixels per second. The applied velocity estimate follows the same acceleration limit as the firmware instead of assuming the stage reaches each command immediately:
+
+```text
+image_velocity_px_s = (bottom_y_now - bottom_y_previous) / dt_s
+estimated_applied_mm_s = move_toward(
+  previous_applied_mm_s,
+  last_commanded_mm_s,
+  motor_acceleration_mm_s2 * dt_s
+)
+camera_velocity_px_s = estimated_applied_mm_s / (control_sign * mm_per_px)
+estimated_flame_velocity_px_s = image_velocity_px_s + camera_velocity_px_s
+feedforward_mm_s = control_sign * feedforward_gain * estimated_flame_velocity_px_s * mm_per_px
+velocity_mm_s = feedback_mm_s + feedforward_mm_s
+```
+
+This frame-of-reference correction matters because once the camera is following the flame well, the flame may appear nearly stationary in the image even though the real burn front is still moving. Start with feedforward gain below `1.0`, then increase only if the stage still lags without overshooting. The `mm_per_px` value is approximate and should be tuned at the flame plane.
+
+`motorAccelerationMmS2` in `src/config.js` must match firmware `Config::kMaxStageAccelMmS2`. Stop, watchdog, stall, and limit events remain immediate in firmware and reset the browser's applied-velocity estimate to zero.
+
 `control_sign` is configurable because the relationship between image error and motor command direction must be validated on the real stage.
 
 ## Firmware Serial

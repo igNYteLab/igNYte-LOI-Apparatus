@@ -4,7 +4,7 @@
 namespace {
 constexpr float kRsenseOhms = 0.05f;  // from Adafruit schematic for TMC2209
 constexpr uint8_t kDriverAddress = 0b00;
-constexpr uint16_t kMotorCurrentMa = 600;
+constexpr uint16_t kMotorCurrentMa = 900;
 constexpr uint32_t kMaxTcoolthrs = 0xFFFFF;
 }  // namespace
 
@@ -37,8 +37,6 @@ void MotorController::begin() {
 
 void MotorController::configureDriver() {
   stopImmediately();
-  cancelStallMotion();
-  cancelAxisCalibration();
 
   lockDriver();
   driver_.begin();
@@ -90,7 +88,11 @@ void MotorController::service() {
   }
 
   if (velocityMode_) {
-    stepper_.runSpeed();
+    if (stallMotionMode_ == StallMotionMode::Test) {
+      stepper_.runSpeed();
+    } else {
+      serviceVelocityRamp();
+    }
   } else {
     stepper_.run();
   }
@@ -135,8 +137,20 @@ void MotorController::setVelocityMmS(float velocityMmS) {
     motionEvent_ = MotorMotionEvent::CalibrationIncomplete;
     return;
   }
+
+  if (velocityMmS == 0.0f) {
+    stop();
+    return;
+  }
+
+  const bool continuingVelocityCommand =
+      velocityMode_ && stallMotionMode_ == StallMotionMode::None &&
+      !calibrationActive();
   cancelStallMotion();
   cancelAxisCalibration();
+  if (!continuingVelocityCommand) {
+    stopImmediately();
+  }
   if (limitsValid_) {
     const long position = stepper_.currentPosition();
     if ((velocityMmS < 0.0f && position <= minLimitSteps_) ||
@@ -147,7 +161,10 @@ void MotorController::setVelocityMmS(float velocityMmS) {
     }
   }
   velocityMode_ = true;
-  stepper_.setSpeed(velocityMmS * Config::kStepsPerMm);
+  targetVelocityMmS_ = velocityMmS;
+  if (lastVelocityRampUs_ == 0) {
+    lastVelocityRampUs_ = micros();
+  }
 }
 
 void MotorController::homeHere() {
@@ -261,6 +278,7 @@ bool MotorController::startAxisCalibration(float maxTravelMm) {
   }
 
   stopImmediately();
+  configureDriver();
   limitsValid_ = false;
   motionEvent_ = MotorMotionEvent::None;
   calibrationStartSteps_ = stepper_.currentPosition();
@@ -511,8 +529,34 @@ long MotorController::clampToSoftwareLimits(long steps) {
   return steps;
 }
 
+void MotorController::serviceVelocityRamp() {
+  const uint32_t nowUs = micros();
+  if (lastVelocityRampUs_ == 0) {
+    lastVelocityRampUs_ = nowUs;
+  }
+
+  const uint32_t elapsedUs = nowUs - lastVelocityRampUs_;
+  lastVelocityRampUs_ = nowUs;
+  const float elapsedS = fminf(static_cast<float>(elapsedUs) / 1000000.0f, 0.1f);
+  const float maxVelocityChange = Config::kMaxStageAccelMmS2 * elapsedS;
+
+  if (appliedVelocityMmS_ < targetVelocityMmS_) {
+    appliedVelocityMmS_ =
+        fminf(appliedVelocityMmS_ + maxVelocityChange, targetVelocityMmS_);
+  } else if (appliedVelocityMmS_ > targetVelocityMmS_) {
+    appliedVelocityMmS_ =
+        fmaxf(appliedVelocityMmS_ - maxVelocityChange, targetVelocityMmS_);
+  }
+
+  stepper_.setSpeed(appliedVelocityMmS_ * Config::kStepsPerMm);
+  stepper_.runSpeed();
+}
+
 void MotorController::stopImmediately() {
   velocityMode_ = false;
+  targetVelocityMmS_ = 0.0f;
+  appliedVelocityMmS_ = 0.0f;
+  lastVelocityRampUs_ = 0;
   stepper_.setCurrentPosition(stepper_.currentPosition());
 }
 

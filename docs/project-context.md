@@ -311,9 +311,9 @@ Current mechanical assumptions:
 | Lead screw | 2 mm/rev |
 | Microsteps | 8 |
 | Steps/mm | 800 |
-| Max speed | 25 mm/s |
-| Max acceleration | 20 mm/s^2 |
-| StallGuard threshold | SGTHRS 158 |
+| Max speed | 40 mm/s |
+| Max acceleration | 100 mm/s^2 |
+| StallGuard threshold | SGTHRS 150 |
 | StallGuard cool threshold | TCOOLTHRS 1500 |
 | Stall homing speed | -20 mm/s |
 | Stall homing backoff | 2 mm |
@@ -348,7 +348,7 @@ Current motor commands:
 {"cmd":"motor.stop"}
 {"cmd":"motor.home_here"}
 {"cmd":"motor.driver_status"}
-{"cmd":"motor.stall_config","sgthrs":158,"tcoolthrs":1500}
+{"cmd":"motor.stall_config","sgthrs":150,"tcoolthrs":1500}
 {"cmd":"motor.stall_status"}
 {"cmd":"motor.stall_test","mm_s":-2.0,"max_travel_mm":5.0}
 {"cmd":"motor.calibrate_axis"}

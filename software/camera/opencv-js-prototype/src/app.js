@@ -1,4 +1,8 @@
-import { computePRecommendation, computePIRecommendation, resetControllerState } from "./controller.js"
+import {
+  computePRecommendation,
+  computePIRecommendation,
+  resetControllerState as createControllerState,
+} from "./controller.js"
 import { DEFAULT_CONFIG } from "./config.js"
 import { detectTarget } from "./detector.js"
 import { buildTrackingMessage } from "./messages.js"
@@ -35,6 +39,9 @@ const els = {
   deadbandInput: document.getElementById("deadbandInput"),
   kpInput: document.getElementById("kpInput"),
   kiInput: document.getElementById("kiInput"),
+  feedforwardButton: document.getElementById("feedforwardButton"),
+  feedforwardGainInput: document.getElementById("feedforwardGainInput"),
+  mmPerPxInput: document.getElementById("mmPerPxInput"),
   maxVelocityInput: document.getElementById("maxVelocityInput"),
   controlSignSelect: document.getElementById("controlSignSelect"),
   processFpsInput: document.getElementById("processFpsInput"),
@@ -81,10 +88,8 @@ const state = {
   lastAutoControlMs: 0,
   autoControlSendActive: false,
   controllerMode: DEFAULT_CONFIG.controller.mode,
-  controllerState: {
-    integralErrorPxS: 0,
-    lastUpdateMs: null,
-  },
+  feedforwardEnabled: DEFAULT_CONFIG.controller.feedforwardEnabled,
+  controllerState: createControllerState(),
 }
 
 const serialController = createSerialController({
@@ -139,11 +144,9 @@ function bindEventHandlers() {
     void disableMotorSafely(),
   )
   els.controllerModeButton.addEventListener("click", toggleControllerMode)
+  els.feedforwardButton.addEventListener("click", toggleFeedforward)
   els.sendRecommendationButton.addEventListener("click", () =>
-    void serialController.sendCurrentRecommendation(
-      state.latestTracking,
-      state.latestRecommendation,
-    ),
+    void sendCurrentRecommendationSafely(),
   )
   els.autoControlButton.addEventListener("click", () => toggleAutoControl())
 }
@@ -152,6 +155,30 @@ function toggleControllerMode() {
   state.controllerMode = state.controllerMode === "pi" ? "p" : "pi"
   resetControllerState()
   updateControllerModeButton()
+}
+
+function toggleFeedforward() {
+  state.feedforwardEnabled = !state.feedforwardEnabled
+  resetControllerState()
+  updateFeedforwardButton()
+}
+
+function updateFeedforwardButton() {
+  els.feedforwardButton.textContent = state.feedforwardEnabled
+    ? "Feedforward On"
+    : "Feedforward Off"
+  els.feedforwardButton.classList.toggle("active", state.feedforwardEnabled)
+}
+
+function resetControllerState(
+  lastCommandedMmS = state.controllerState.lastCommandedMmS,
+  estimatedAppliedMmS = state.controllerState.estimatedAppliedMmS,
+) {
+  state.controllerState = createControllerState(
+    null,
+    lastCommandedMmS,
+    estimatedAppliedMmS,
+  )
 }
 
 function updateControllerModeButton() {
@@ -204,10 +231,13 @@ function applyDefaultConfig() {
   els.deadbandInput.value = DEFAULT_CONFIG.controller.deadbandPx
   els.kpInput.value = DEFAULT_CONFIG.controller.kpMmSPerPx
   els.kiInput.value = DEFAULT_CONFIG.controller.kiMmSPerPxS
+  els.feedforwardGainInput.value = DEFAULT_CONFIG.controller.feedforwardGain
+  els.mmPerPxInput.value = DEFAULT_CONFIG.controller.mmPerPx
   els.maxVelocityInput.value = DEFAULT_CONFIG.controller.maxVelocityMmS
   els.controlSignSelect.value = String(DEFAULT_CONFIG.controller.controlSign)
   els.processFpsInput.value = DEFAULT_CONFIG.controller.processFps
   updateControllerModeButton()
+  updateFeedforwardButton()
 }
 
 function waitForOpenCv() {
@@ -307,7 +337,7 @@ async function startCamera() {
     els.stopButton.disabled = false
     els.applyCameraConstraintsButton.disabled = !state.activeTrack
     setStatus(els.cameraStatus, "Camera running", "good")
-    resetControllerState()
+    resetControllerState(0, 0)
     state.processing = true
     state.lastProcessMs = 0
     state.animationId = requestAnimationFrame(processLoop)
@@ -337,7 +367,7 @@ function stopCamera() {
   els.startButton.disabled = false
   els.stopButton.disabled = true
   els.applyCameraConstraintsButton.disabled = true
-  resetControllerState()
+  resetControllerState(0, 0)
   setStatus(els.cameraStatus, "Camera stopped", "muted")
 }
 
@@ -428,7 +458,15 @@ function computeControllerRecommendation(detection, frameHeight, controlOptions,
     return result
   }
 
-  return computePRecommendation(detection, frameHeight, controlOptions)
+  const result = computePRecommendation(
+    detection,
+    frameHeight,
+    controlOptions,
+    state.controllerState,
+    nowMs,
+  )
+  state.controllerState = result.controllerState
+  return result
 }
 
 function updateSerialButtons(connected) {
@@ -481,19 +519,25 @@ function shouldSendAutoControl(nowMs) {
 async function sendAutoControlRecommendation() {
   state.autoControlSendActive = true
   try {
-    await serialController.sendCurrentRecommendation(
-      state.latestTracking,
-      state.latestRecommendation,
-    )
+    await sendCurrentRecommendationSafely()
   } finally {
     state.autoControlSendActive = false
   }
+}
+
+async function sendCurrentRecommendationSafely() {
+  await serialController.sendCurrentRecommendation(
+    state.latestTracking,
+    state.latestRecommendation,
+  )
+  updateLastCommandedVelocity(state.latestTracking, state.latestRecommendation)
 }
 
 async function stopAutoControl() {
   setAutoControlEnabled(false)
   if (state.serialConnected) {
     await serialController.sendCommand(firmwareCommands.motorVelocityMmS(0))
+    setLastCommandedVelocity(0, true)
   }
 }
 
@@ -502,6 +546,7 @@ async function stopMotorSafely() {
     await stopAutoControl()
   }
   await serialController.sendCommand(firmwareCommands.motorStop())
+  setLastCommandedVelocity(0, true)
 }
 
 async function calibrateAxisSafely() {
@@ -510,6 +555,7 @@ async function calibrateAxisSafely() {
     await stopAutoControl()
   }
   await serialController.sendCommand(firmwareCommands.motorCalibrateAxis())
+  setLastCommandedVelocity(0, true)
 }
 
 async function disableMotorSafely() {
@@ -517,6 +563,7 @@ async function disableMotorSafely() {
     await stopAutoControl()
   }
   await serialController.sendCommand(firmwareCommands.motorDisable())
+  setLastCommandedVelocity(0, true)
 }
 
 async function disconnectSerialSafely() {
@@ -524,6 +571,27 @@ async function disconnectSerialSafely() {
     await stopAutoControl()
   }
   await serialController.disconnect()
+  setLastCommandedVelocity(0, true)
+}
+
+function updateLastCommandedVelocity(tracking, recommendation) {
+  if (tracking?.tracking && tracking.confidence >= 0.5 && recommendation) {
+    setLastCommandedVelocity(recommendation.velocity_mm_s)
+  } else {
+    setLastCommandedVelocity(0, true)
+  }
+}
+
+function setLastCommandedVelocity(velocityMmS, immediate = false) {
+  if (immediate) {
+    resetControllerState(0, 0)
+    return
+  }
+
+  state.controllerState = {
+    ...state.controllerState,
+    lastCommandedMmS: velocityMmS,
+  }
 }
 
 function resizeCanvases() {
@@ -585,6 +653,14 @@ function readControlOptions() {
       DEFAULT_CONFIG.controller.kiMmSPerPxS,
     ),
     maxIntegralErrorPxS: DEFAULT_CONFIG.controller.maxIntegralErrorPxS,
+    feedforwardEnabled: state.feedforwardEnabled,
+    feedforwardGain: numberValue(
+      els.feedforwardGainInput,
+      DEFAULT_CONFIG.controller.feedforwardGain,
+    ),
+    mmPerPx: numberValue(els.mmPerPxInput, DEFAULT_CONFIG.controller.mmPerPx),
+    imageVelocityAlpha: DEFAULT_CONFIG.controller.imageVelocityAlpha,
+    motorAccelerationMmS2: DEFAULT_CONFIG.controller.motorAccelerationMmS2,
     maxVelocityMmS: numberValue(
       els.maxVelocityInput,
       DEFAULT_CONFIG.controller.maxVelocityMmS,
@@ -630,7 +706,7 @@ function drawOverlay(context, detection, setpointYPx, errorYPx, recommendation) 
   }
 
   context.fillStyle = "rgba(0, 0, 0, 0.72)"
-  context.fillRect(12, 12, 430, 104)
+  context.fillRect(12, 12, 500, recommendation?.feedforward_velocity_mm_s ? 150 : 104)
   context.fillStyle = "#ffffff"
   context.font = "24px ui-monospace, SFMono-Regular, Consolas, monospace"
   const lines = detection.tracking
@@ -641,7 +717,14 @@ function drawOverlay(context, detection, setpointYPx, errorYPx, recommendation) 
         recommendation
           ? `velocity ${recommendation.velocity_mm_s} mm/s`
           : "velocity null",
+        recommendation?.feedforward_velocity_mm_s
+          ? `fb ${recommendation.feedback_velocity_mm_s} ff ${recommendation.feedforward_velocity_mm_s} mm/s`
+          : null,
+        recommendation?.estimated_flame_velocity_px_s
+          ? `est flame v ${recommendation.estimated_flame_velocity_px_s} px/s`
+          : null,
       ]
+        .filter(Boolean)
     : ["tracking false", `setpoint ${setpointYPx}px`, "velocity null"]
 
   for (let i = 0; i < lines.length; i += 1) {
