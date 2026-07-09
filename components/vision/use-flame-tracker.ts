@@ -17,9 +17,9 @@ import {
   type ControllerState,
   type Recommendation,
 } from "@/lib/vision/controller"
-import { detectTarget, type Detection } from "@/lib/vision/detector"
+import type { Detection } from "@/lib/vision/detector"
 import { buildTrackingMessage, type TrackingMessage } from "@/lib/vision/messages"
-import type { OpenCvModule } from "@/lib/vision/opencv-types"
+import type { VisionRuntime } from "@/lib/vision/opencv-types"
 
 // If the process loop hasn't produced a fresh frame within this window, the
 // auto-control fail-safe sends zero velocity (e.g. the operator left the tab).
@@ -92,8 +92,17 @@ function drawOverlay(
   ctx.fill()
 }
 
+function drawMask(canvas: HTMLCanvasElement | null, mask: ImageData) {
+  if (!canvas) return
+  if (canvas.width !== mask.width) canvas.width = mask.width
+  if (canvas.height !== mask.height) canvas.height = mask.height
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return
+  ctx.putImageData(mask, 0, 0)
+}
+
 export function useFlameTracker(params: {
-  cv: OpenCvModule | null
+  cv: VisionRuntime | null
   connected: boolean
   sendCommand: (command: string) => Promise<void>
 }) {
@@ -136,6 +145,7 @@ export function useFlameTracker(params: {
   const lastProcessMsRef = useRef(0)
   const lastStatusMsRef = useRef(0)
   const frameIdRef = useRef(0)
+  const processBusyRef = useRef(false)
   const controllerStateRef = useRef<ControllerState>(resetControllerState())
   const emaFpsRef = useRef(0)
   const autoSendBusyRef = useRef(false)
@@ -173,15 +183,16 @@ export function useFlameTracker(params: {
 
   // ---- Processing (one frame) ----------------------------------------------
   const processFrameOnce = useCallback(() => {
-    const cv = cvRef.current
+    const vision = cvRef.current
     const video = videoRef.current
     const frame = frameCanvasRef.current
-    if (!cv || !video || !frame || !runningRef.current) return
+    if (!vision || !video || !frame || !runningRef.current) return
 
     const cfg = configRef.current
     const now = performance.now()
     const sinceLast = now - lastProcessMsRef.current
     if (sinceLast < 1000 / Math.max(1, cfg.controller.processFps)) return
+    if (processBusyRef.current) return
     lastProcessMsRef.current = now
     if (video.readyState < 2 || !video.videoWidth) return
 
@@ -190,66 +201,74 @@ export function useFlameTracker(params: {
     const fctx = frame.getContext("2d", { willReadFrequently: true })
     if (!fctx) return
     fctx.drawImage(video, 0, 0, frame.width, frame.height)
+    const imageData = fctx.getImageData(0, 0, frame.width, frame.height)
+    processBusyRef.current = true
 
-    const { detection, mask } = detectTarget(cv, frame, cfg.detector)
-    const result =
-      cfg.controller.mode === "pi"
-        ? computePIRecommendation(
-            detection,
-            frame.height,
-            cfg.controller,
-            controllerStateRef.current,
-            now,
-          )
-        : computePRecommendation(detection, frame.height, cfg.controller)
-    if (result.controllerState) controllerStateRef.current = result.controllerState
+    void vision
+      .detect(imageData, cfg.detector)
+      .then(({ detection, mask }) => {
+        if (!runningRef.current) return
+        const result =
+          cfg.controller.mode === "pi"
+            ? computePIRecommendation(
+                detection,
+                frame.height,
+                cfg.controller,
+                controllerStateRef.current,
+                now,
+              )
+            : computePRecommendation(detection, frame.height, cfg.controller)
+        if (result.controllerState) controllerStateRef.current = result.controllerState
 
-    frameIdRef.current += 1
-    const message = buildTrackingMessage({
-      frameId: frameIdRef.current,
-      frameWidth: frame.width,
-      frameHeight: frame.height,
-      detection,
-      setpointYPx: result.setpointYPx,
-      setpointYNorm: cfg.controller.setpointYNorm,
-      errorYPx: result.errorYPx,
-      recommendation: result.recommendation,
-    })
+        frameIdRef.current += 1
+        const message = buildTrackingMessage({
+          frameId: frameIdRef.current,
+          frameWidth: frame.width,
+          frameHeight: frame.height,
+          detection,
+          setpointYPx: result.setpointYPx,
+          setpointYNorm: cfg.controller.setpointYNorm,
+          errorYPx: result.errorYPx,
+          recommendation: result.recommendation,
+        })
 
-    latestRef.current = {
-      atMs: now,
-      detection,
-      recommendation: result.recommendation,
-    }
+        latestRef.current = {
+          atMs: now,
+          detection,
+          recommendation: result.recommendation,
+        }
 
-    drawOverlay(overlayCanvasRef.current, video, detection, result.setpointYPx)
-    try {
-      cv.imshow(maskCanvasRef.current, mask)
-    } catch {
-      // Mask canvas may be unmounted; ignore.
-    } finally {
-      mask.delete()
-    }
+        drawOverlay(overlayCanvasRef.current, video, detection, result.setpointYPx)
+        drawMask(maskCanvasRef.current, mask)
 
-    const instFps = sinceLast > 0 ? 1000 / sinceLast : 0
-    emaFpsRef.current = emaFpsRef.current
-      ? emaFpsRef.current * 0.8 + instFps * 0.2
-      : instFps
+        const instFps = sinceLast > 0 ? 1000 / sinceLast : 0
+        emaFpsRef.current = emaFpsRef.current
+          ? emaFpsRef.current * 0.8 + instFps * 0.2
+          : instFps
 
-    // Throttle React status updates (~5 Hz) so the control panel doesn't
-    // re-render on every processed frame; the canvases already drew above.
-    if (now - lastStatusMsRef.current >= 200) {
-      lastStatusMsRef.current = now
-      setStatus({
-        tracking: detection.tracking,
-        confidence: detection.confidence,
-        errorYPx: result.errorYPx,
-        recommendation: result.recommendation,
-        setpointYPx: result.setpointYPx,
-        processedFps: emaFpsRef.current,
-        message,
+        // Throttle React status updates (~5 Hz) so the control panel doesn't
+        // re-render on every processed frame; the canvases already drew above.
+        if (now - lastStatusMsRef.current >= 200) {
+          lastStatusMsRef.current = now
+          setStatus({
+            tracking: detection.tracking,
+            confidence: detection.confidence,
+            errorYPx: result.errorYPx,
+            recommendation: result.recommendation,
+            setpointYPx: result.setpointYPx,
+            processedFps: emaFpsRef.current,
+            message,
+          })
+        }
       })
-    }
+      .catch((err: unknown) => {
+        setCameraError(
+          err instanceof Error ? err.message : "Vision worker detection failed",
+        )
+      })
+      .finally(() => {
+        processBusyRef.current = false
+      })
   }, [])
 
   // Drive processing with requestAnimationFrame while the camera runs.

@@ -77,7 +77,13 @@ export function VisionPanel({
   sendCommand: (command: string) => Promise<void>
   disableRef: React.MutableRefObject<(() => void) | null>
 }) {
-  const { cv, status: cvStatus, error: cvError, load: loadCv } = useOpenCv()
+  const {
+    cv,
+    status: cvStatus,
+    error: cvError,
+    detail: cvDetail,
+    load: loadCv,
+  } = useOpenCv()
   const tracker = useFlameTracker({ cv, connected, sendCommand })
   const {
     config,
@@ -190,6 +196,11 @@ export function VisionPanel({
           {cvError ? (
             <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
               {cvError}
+            </p>
+          ) : null}
+          {cvDetail && cvStatus === "loading" ? (
+            <p className="rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
+              {cvDetail}
             </p>
           ) : null}
           {cameraError ? (

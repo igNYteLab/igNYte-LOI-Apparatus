@@ -43,8 +43,8 @@ export type VisionConfig = {
 }
 
 export const DEFAULT_VISION_CONFIG: VisionConfig = {
-  // Kept modest: OpenCV runs on the main thread per frame, so smaller frames
-  // keep the UI responsive. Raise if you need finer tracking and have headroom.
+  // Kept modest: OpenCV runs in a worker, but smaller frames still reduce
+  // detection latency and leave more CPU headroom for the dashboard.
   camera: { widthPx: 640, heightPx: 480, fps: 30 },
   detector: {
     hsvLow: { h: 5, s: 80, v: 80 },

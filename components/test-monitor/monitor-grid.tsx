@@ -192,6 +192,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
   const [saveOpen, setSaveOpen] = React.useState(false)
   const [saveName, setSaveName] = React.useState("")
   const [clockNow, setClockNow] = React.useState(0)
+  const [activeTab, setActiveTab] = React.useState("run")
 
   const connected = deviceStatus === "connected"
   const operator =
@@ -430,7 +431,8 @@ export function MonitorGrid({ context }: MonitorGridProps) {
   return (
     <>
       <Tabs
-        defaultValue="monitoring"
+        value={activeTab}
+        onValueChange={setActiveTab}
         className="flex min-h-0 flex-1 flex-col gap-3"
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -462,6 +464,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
           </div>
           <div className="flex items-center gap-2">
             <TabsList>
+              <TabsTrigger value="run">
+                <IconFlame data-icon="inline-start" />
+                Run
+              </TabsTrigger>
               <TabsTrigger value="monitoring">
                 <IconGauge data-icon="inline-start" />
                 Monitoring
@@ -516,6 +522,218 @@ export function MonitorGrid({ context }: MonitorGridProps) {
           </p>
         ) : null}
 
+        <TabsContent value="run" className="min-h-0 overflow-auto">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+            <div className="grid min-h-0 gap-3">
+              <Card size="sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <IconFlame />
+                    Test Run
+                  </CardTitle>
+                  <CardDescription>
+                    Operator controls for the active flame test.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <MetricPill label="Connection" value={connection} />
+                  <MetricPill
+                    label="Clock"
+                    value={connected ? (sync.calibrated ? "synced" : "syncing") : "offline"}
+                  />
+                  <MetricPill label="Samples" value={liveSampleCount} />
+                  <MetricPill
+                    label="Elapsed"
+                    value={
+                      recording && sessionStartMs !== null
+                        ? formatElapsed((clockNow - sessionStartMs) / 1000)
+                        : formatElapsed(sessionDurationSeconds)
+                    }
+                  />
+                </CardContent>
+                <CardFooter className="flex flex-wrap gap-2">
+                  {!connected ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!serialSupported || deviceStatus === "connecting"}
+                      title={
+                        serialSupported
+                          ? (deviceError ?? undefined)
+                          : "Web Serial isn't available. Use Chrome or Edge over localhost/HTTPS."
+                      }
+                      onClick={() => void connectDevice()}
+                    >
+                      <IconBolt data-icon="inline-start" />
+                      {deviceStatus === "connecting"
+                        ? "Connecting..."
+                        : serialSupported
+                          ? "Connect board"
+                          : "Serial unavailable"}
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!connected}
+                    onClick={() =>
+                      void send(fw.motorCalibrateAxis(), "Axis calibration started")
+                    }
+                  >
+                    <IconAdjustments data-icon="inline-start" />
+                    Calibrate axis
+                  </Button>
+                  {recording ? (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={stopRecording}
+                    >
+                      <IconPlayerStop data-icon="inline-start" />
+                      Stop test
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!connected}
+                      onClick={() => {
+                        setCheckedItems(SAFETY_ITEMS.map(() => false))
+                        setSafetyOpen(true)
+                      }}
+                    >
+                      <IconPlayerPlay data-icon="inline-start" />
+                      Run test
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={!connected}
+                    className="font-semibold"
+                    onClick={() => void emergencyStop()}
+                  >
+                    <IconHandStop data-icon="inline-start" />
+                    E-STOP
+                  </Button>
+                </CardFooter>
+              </Card>
+
+              <VisionPanel
+                connected={connected}
+                sendCommand={sendCommand}
+                disableRef={visionDisableRef}
+              />
+
+              <Card size="sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <IconTemperature />
+                    Live Trends
+                  </CardTitle>
+                  <CardDescription>Rolling 60-second window.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid min-h-80 gap-3 xl:grid-cols-3">
+                  <TrendChart
+                    title="Thermocouples (°C)"
+                    data={buildSeries(windowed, THERMOCOUPLES, (s) => s.temp_c)}
+                    config={tempChartConfig}
+                    seriesKeys={[...THERMOCOUPLES]}
+                  />
+                  <TrendChart
+                    title="Flow controllers (%)"
+                    data={buildSeries(windowed, FLOW_CHANNELS, (s) => s.pct)}
+                    config={flowChartConfig}
+                    seriesKeys={[...FLOW_CHANNELS]}
+                  />
+                  <TrendChart
+                    title="Oxygen (vol %)"
+                    data={buildSeries(windowed, ["o2"], (s) => s.o2_vol_pct)}
+                    config={oxygenChartConfig}
+                    seriesKeys={["o2"]}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid min-h-0 gap-3">
+              <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                {activeTab === "run" ? (
+                  <>
+                    <CameraCard
+                      ref={rgbCameraRef}
+                      title="RGB Sample Camera"
+                      description="Recordable sample-chamber view."
+                      storageKey="ignyte.camera.source"
+                      streamUrl={process.env.NEXT_PUBLIC_CAMERA_URL}
+                      recordable
+                      recording={recording}
+                      variant="rgb"
+                    />
+                    <CameraCard
+                      title="Hyperspectral Camera"
+                      description="Monitoring-only HSI view."
+                      storageKey="ignyte.camera.hsi.source"
+                      streamUrl={process.env.NEXT_PUBLIC_HSI_CAMERA_URL}
+                      recordable={false}
+                      recording={recording}
+                      variant="hsi"
+                    />
+                  </>
+                ) : null}
+              </div>
+
+              <Card size="sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <IconGauge />
+                    Live Sensors
+                  </CardTitle>
+                  <CardDescription>Latest reading and sample rate.</CardDescription>
+                </CardHeader>
+                <CardContent className="max-h-96 overflow-auto">
+                  <SensorReadouts
+                    samples={samples}
+                    rates={sensorRates}
+                    connected={connected}
+                  />
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                <MotorControlCard motor={motor} connected={connected} onSend={send} />
+                <FlowControlCard
+                  samples={samples}
+                  connected={connected}
+                  onSend={send}
+                />
+                <SensorRateCard connected={connected} onSend={send} />
+                <StallGuardCard
+                  driver={driver}
+                  stall={stall}
+                  connected={connected}
+                  onSend={send}
+                />
+                <BusSensorCard
+                  i2c={i2c}
+                  sensorStatuses={sensorStatuses}
+                  connected={connected}
+                  onSend={send}
+                />
+                <ConsoleCard
+                  lines={lines}
+                  connected={connected}
+                  onSend={(command) => void send(command)}
+                />
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
         <TabsContent value="monitoring" className="min-h-0">
           <div className="grid min-h-0 gap-3 lg:h-[calc(100svh-var(--header-height)-8rem)] lg:grid-cols-12 lg:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
             {/* Live sensor readouts */}
@@ -538,27 +756,31 @@ export function MonitorGrid({ context }: MonitorGridProps) {
 
             {/* Cameras */}
             <div className="min-h-0 lg:col-span-5">
-              <CameraCard
-                ref={rgbCameraRef}
-                title="RGB Sample Camera"
-                description="Recordable sample-chamber view."
-                storageKey="ignyte.camera.source"
-                streamUrl={process.env.NEXT_PUBLIC_CAMERA_URL}
-                recordable
-                recording={recording}
-                variant="rgb"
-              />
+              {activeTab === "monitoring" ? (
+                <CameraCard
+                  ref={rgbCameraRef}
+                  title="RGB Sample Camera"
+                  description="Recordable sample-chamber view."
+                  storageKey="ignyte.camera.source"
+                  streamUrl={process.env.NEXT_PUBLIC_CAMERA_URL}
+                  recordable
+                  recording={recording}
+                  variant="rgb"
+                />
+              ) : null}
             </div>
             <div className="min-h-0 lg:col-span-4">
-              <CameraCard
-                title="Hyperspectral Camera"
-                description="Monitoring-only HSI view."
-                storageKey="ignyte.camera.hsi.source"
-                streamUrl={process.env.NEXT_PUBLIC_HSI_CAMERA_URL}
-                recordable={false}
-                recording={recording}
-                variant="hsi"
-              />
+              {activeTab === "monitoring" ? (
+                <CameraCard
+                  title="Hyperspectral Camera"
+                  description="Monitoring-only HSI view."
+                  storageKey="ignyte.camera.hsi.source"
+                  streamUrl={process.env.NEXT_PUBLIC_HSI_CAMERA_URL}
+                  recordable={false}
+                  recording={recording}
+                  variant="hsi"
+                />
+              ) : null}
             </div>
 
             {/* Trends */}
@@ -965,6 +1187,7 @@ function MotorControlCard({
           <Button size="sm" variant="outline" disabled={!connected} onClick={() => onSend(fw.motorEnable(), "Motor enable sent")}>Enable</Button>
           <Button size="sm" variant="outline" disabled={!connected} onClick={() => onSend(fw.motorDisable(), "Motor disable sent")}>Disable</Button>
           <Button size="sm" variant="destructive" disabled={!connected} onClick={() => onSend(fw.motorStop(), "Stop sent")}>Stop</Button>
+          <Button size="sm" variant="outline" disabled={!connected} onClick={() => onSend(fw.motorCalibrateAxis(), "Axis calibration started")}>Calibrate axis</Button>
           <Button size="sm" variant="outline" disabled={!connected} onClick={() => onSend(fw.motorHomeHere(), "Home-here sent")}>Home here</Button>
           <Button size="sm" variant="ghost" disabled={!connected} onClick={() => onSend(fw.motorStatus())} aria-label="Refresh motor status">
             <IconRefresh />
