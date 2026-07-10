@@ -155,6 +155,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     lines,
     samples,
     log,
+    getCurrentLog,
     motor,
     boot,
     driver,
@@ -344,8 +345,9 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     setRecording(false)
     // Capture every sample received during the session window.
     const start = sessionStartMs ?? stopMs
+    const currentLog = getCurrentLog()
     setSessionSamples(
-      log.filter((s) => s.receivedAt >= start && s.receivedAt <= stopMs),
+      currentLog.filter((s) => s.receivedAt >= start && s.receivedAt <= stopMs),
     )
 
     const recorder = recorderRef.current
@@ -420,12 +422,13 @@ export function MonitorGrid({ context }: MonitorGridProps) {
   }
 
   function downloadCurrentData() {
-    if (!log.length) {
+    const currentLog = getCurrentLog()
+    if (!currentLog.length) {
       toast.error("No samples have been received yet.")
       return
     }
     const filename = `samples_${new Date().toISOString().replace(/[:.]/g, "-")}.json`
-    downloadTextFile(filename, JSON.stringify(log, null, 2))
+    downloadTextFile(filename, JSON.stringify(currentLog, null, 2))
   }
 
   return (

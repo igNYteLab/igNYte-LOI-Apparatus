@@ -30,6 +30,7 @@ const MAX_LINES = 200
 // Rolling sample log kept in memory for charts and session recording. Bounds
 // memory; sessions longer than this many samples lose their earliest points.
 const MAX_LOG = 10_000
+const TELEMETRY_UI_FLUSH_MS = 200
 
 // Host↔MCU clock sync. During the first SYNC_WINDOW_MS of samples we collect
 // (perfNow − t_us/1000) offsets; the MINIMUM offset is the least-delayed sample
@@ -55,6 +56,8 @@ type DeviceContextValue = {
   samples: Record<string, FirmwareSample>
   /** Rolling window of recent samples (oldest first) for charts/recording. */
   log: FirmwareSample[]
+  /** Immediate in-memory sample log, including samples not yet flushed to UI. */
+  getCurrentLog: () => FirmwareSample[]
   /** Latest known motor state, or null until a state message arrives. */
   motor: MotorState | null
   /** Latest boot status, or null until the board reports one. */
@@ -105,6 +108,17 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const syncStartRef = useRef<number | null>(null)
   const syncBestOffsetRef = useRef<number | null>(null)
   const syncCalibratedRef = useRef(false)
+  const linesRef = useRef<string[]>([])
+  const samplesRef = useRef<Record<string, FirmwareSample>>({})
+  const logRef = useRef<FirmwareSample[]>([])
+  const motorRef = useRef<MotorState | null>(null)
+  const bootRef = useRef<BootState | null>(null)
+  const driverRef = useRef<FirmwareStatus | null>(null)
+  const stallRef = useRef<FirmwareStatus | null>(null)
+  const sensorStatusesRef = useRef<SensorStatusEntry[] | null>(null)
+  const i2cRef = useRef<{ addresses: number[]; count: number } | null>(null)
+  const telemetryDirtyRef = useRef(false)
+  const telemetryFlushTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     const ok = typeof navigator !== "undefined" && "serial" in navigator
@@ -116,6 +130,20 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const resetState = useCallback(() => {
+    if (telemetryFlushTimerRef.current !== null) {
+      window.clearTimeout(telemetryFlushTimerRef.current)
+      telemetryFlushTimerRef.current = null
+    }
+    linesRef.current = []
+    samplesRef.current = {}
+    logRef.current = []
+    motorRef.current = null
+    bootRef.current = null
+    driverRef.current = null
+    stallRef.current = null
+    sensorStatusesRef.current = null
+    i2cRef.current = null
+    telemetryDirtyRef.current = false
     setLines([])
     setSamples({})
     setLog([])
@@ -131,6 +159,37 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     setSyncCalibrated(false)
     setSyncOffsetMs(null)
   }, [])
+
+  const flushTelemetryUi = useCallback(() => {
+    if (telemetryFlushTimerRef.current !== null) {
+      window.clearTimeout(telemetryFlushTimerRef.current)
+      telemetryFlushTimerRef.current = null
+    }
+    if (!telemetryDirtyRef.current) return
+    telemetryDirtyRef.current = false
+    setLines(linesRef.current)
+    setSamples(samplesRef.current)
+    setLog(logRef.current)
+    setMotor(motorRef.current)
+    setBoot(bootRef.current)
+    setDriver(driverRef.current)
+    setStall(stallRef.current)
+    setSensorStatuses(sensorStatusesRef.current)
+    setI2c(i2cRef.current)
+    setSyncOffsetMs(syncBestOffsetRef.current)
+    setSyncCalibrated(syncCalibratedRef.current)
+  }, [])
+
+  const scheduleTelemetryUiFlush = useCallback(() => {
+    telemetryDirtyRef.current = true
+    if (telemetryFlushTimerRef.current !== null) return
+    telemetryFlushTimerRef.current = window.setTimeout(
+      flushTelemetryUi,
+      TELEMETRY_UI_FLUSH_MS,
+    )
+  }, [flushTelemetryUi])
+
+  const getCurrentLog = useCallback(() => logRef.current, [])
 
   const readLoop = useCallback(async () => {
     const reader = readerRef.current
@@ -223,42 +282,35 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        setLines((prev) => {
-          const next = [...prev, ...complete]
-          return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next
-        })
+        const nextLines = [...linesRef.current, ...complete]
+        linesRef.current =
+          nextLines.length > MAX_LINES ? nextLines.slice(-MAX_LINES) : nextLines
         if (newSamples.length) {
-          setSamples((prev) => {
-            const next = { ...prev }
-            for (const sample of newSamples) next[sample.sensor] = sample
-            return next
-          })
-          setLog((prev) => {
-            const next = [...prev, ...newSamples]
-            return next.length > MAX_LOG ? next.slice(-MAX_LOG) : next
-          })
+          const nextSamples = { ...samplesRef.current }
+          for (const sample of newSamples) nextSamples[sample.sensor] = sample
+          samplesRef.current = nextSamples
+          const nextLog = [...logRef.current, ...newSamples]
+          logRef.current =
+            nextLog.length > MAX_LOG ? nextLog.slice(-MAX_LOG) : nextLog
         }
         if (motorPatch) {
           const patch = motorPatch
-          setMotor((prev) => ({
+          const prev = motorRef.current
+          motorRef.current = {
             enabled: patch.enabled ?? prev?.enabled ?? false,
             endstop_active: patch.endstop_active ?? prev?.endstop_active ?? false,
             velocity_mode: patch.velocity_mode ?? prev?.velocity_mode ?? false,
             position_steps: patch.position_steps ?? prev?.position_steps ?? 0,
             position_mm: patch.position_mm ?? prev?.position_mm ?? 0,
             updatedAt: receivedAt,
-          }))
+          }
         }
-        if (nextBoot) setBoot(nextBoot)
-        if (nextDriver) setDriver(nextDriver)
-        if (nextStall) setStall(nextStall)
-        if (nextSensors) setSensorStatuses(nextSensors)
-        if (nextI2c) setI2c(nextI2c)
-        if (newSamples.length) {
-          // Mirror calibration to state for the UI (same value → no re-render).
-          setSyncOffsetMs(syncBestOffsetRef.current)
-          setSyncCalibrated(syncCalibratedRef.current)
-        }
+        if (nextBoot) bootRef.current = nextBoot
+        if (nextDriver) driverRef.current = nextDriver
+        if (nextStall) stallRef.current = nextStall
+        if (nextSensors) sensorStatusesRef.current = nextSensors
+        if (nextI2c) i2cRef.current = nextI2c
+        scheduleTelemetryUiFlush()
       }
     } catch (err) {
       if (keepReadingRef.current) {
@@ -271,7 +323,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         // ignore
       }
     }
-  }, [])
+  }, [scheduleTelemetryUiFlush])
 
   const teardown = useCallback(async () => {
     keepReadingRef.current = false
@@ -285,6 +337,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     }
+    flushTelemetryUi()
     readLoopRef.current = null
     readerRef.current = null
     try {
@@ -293,7 +346,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       // ignore
     }
     portRef.current = null
-  }, [])
+  }, [flushTelemetryUi])
 
   const disconnect = useCallback(async () => {
     await teardown()
@@ -346,6 +399,10 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       keepReadingRef.current = false
       readerRef.current?.cancel().catch(() => {})
       portRef.current?.close().catch(() => {})
+      if (telemetryFlushTimerRef.current !== null) {
+        window.clearTimeout(telemetryFlushTimerRef.current)
+        telemetryFlushTimerRef.current = null
+      }
     }
   }, [])
 
@@ -358,6 +415,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         lines,
         samples,
         log,
+        getCurrentLog,
         motor,
         boot,
         driver,

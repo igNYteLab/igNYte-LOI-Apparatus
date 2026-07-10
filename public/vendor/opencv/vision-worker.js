@@ -118,7 +118,7 @@ function maskImageData(runtime, mask) {
   }
 }
 
-function detectTarget(imageData, options) {
+function detectTarget(imageData, options, includeMask) {
   const runtime = cv
   const src = runtime.matFromImageData(imageData)
   const rgb = new runtime.Mat()
@@ -170,7 +170,7 @@ function detectTarget(imageData, options) {
 
     if (!best) {
       return {
-        mask: maskImageData(runtime, cleaned),
+        mask: includeMask ? maskImageData(runtime, cleaned) : null,
         detection: { tracking: false, confidence: 0 },
       }
     }
@@ -189,7 +189,7 @@ function detectTarget(imageData, options) {
     best.contour.delete()
 
     return {
-      mask: maskImageData(runtime, cleaned),
+      mask: includeMask ? maskImageData(runtime, cleaned) : null,
       detection: {
         tracking: true,
         confidence,
@@ -226,16 +226,22 @@ self.onmessage = (event) => {
   }
 
   try {
-    const result = detectTarget(message.imageData, message.options)
-    self.postMessage(
-      {
-        type: "detected",
-        id: message.id,
-        detection: result.detection,
-        mask: result.mask,
-      },
-      [result.mask.data.buffer],
+    const result = detectTarget(
+      message.imageData,
+      message.options,
+      message.includeMask === true,
     )
+    const response = {
+      type: "detected",
+      id: message.id,
+      detection: result.detection,
+      mask: result.mask,
+    }
+    if (result.mask) {
+      self.postMessage(response, [result.mask.data.buffer])
+    } else {
+      self.postMessage(response)
+    }
   } catch (error) {
     post("detect-error", {
       id: message.id,

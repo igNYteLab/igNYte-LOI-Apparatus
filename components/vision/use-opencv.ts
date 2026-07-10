@@ -25,7 +25,7 @@ type WorkerMessage =
       type: "detected"
       id: number
       detection: VisionDetectResult["detection"]
-      mask: ImageData
+      mask: ImageData | null
     }
   | { type: "detect-error"; id: number; error: string }
 
@@ -50,7 +50,11 @@ class VisionWorkerRuntime implements VisionRuntime {
     this.worker.addEventListener("error", this.handleWorkerError)
   }
 
-  detect(imageData: ImageData, options: Parameters<VisionRuntime["detect"]>[1]) {
+  detect(
+    imageData: ImageData,
+    options: Parameters<VisionRuntime["detect"]>[1],
+    includeMask: boolean,
+  ) {
     const id = this.nextId++
     return new Promise<VisionDetectResult>((resolve, reject) => {
       const timeoutId = window.setTimeout(() => {
@@ -59,7 +63,7 @@ class VisionWorkerRuntime implements VisionRuntime {
       }, DETECT_TIMEOUT_MS)
       this.pending.set(id, { resolve, reject, timeoutId })
       this.worker.postMessage(
-        { type: "detect", id, imageData, options },
+        { type: "detect", id, imageData, options, includeMask },
         [imageData.data.buffer as ArrayBuffer],
       )
     })

@@ -28,7 +28,10 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import type { ControllerMode } from "@/lib/vision/config"
-import { useFlameTracker } from "@/components/vision/use-flame-tracker"
+import {
+  useFlameTracker,
+  type CameraConstraintValues,
+} from "@/components/vision/use-flame-tracker"
 import { useOpenCv } from "@/components/vision/use-opencv"
 
 function NumField({
@@ -68,7 +71,7 @@ function NumField({
   )
 }
 
-export function VisionPanel({
+function VisionPanelComponent({
   connected,
   sendCommand,
   disableRef,
@@ -87,11 +90,16 @@ export function VisionPanel({
   const tracker = useFlameTracker({ cv, connected, sendCommand })
   const {
     config,
+    patchCamera,
     patchController,
     patchDetector,
     running,
     autoControl,
     cameraError,
+    cameraControlError,
+    cameraReportText,
+    cameraDevices,
+    cameraDeviceId,
     status,
     videoRef,
     frameCanvasRef,
@@ -109,8 +117,36 @@ export function VisionPanel({
 
   const ctrl = config.controller
   const det = config.detector
+  const cam = config.camera
   const cvReady = cvStatus === "ready"
   const canAuto = running && connected && cvReady
+  const [cameraControls, setCameraControls] =
+    React.useState<CameraConstraintValues>({
+      exposureMode: "none",
+      exposureTime: "",
+      whiteBalanceMode: "none",
+      colorTemperature: "",
+    })
+
+  const setCameraControl = React.useCallback(
+    (patch: Partial<CameraConstraintValues>) => {
+      setCameraControls((current) => ({ ...current, ...patch }))
+    },
+    [],
+  )
+
+  const applyCameraControls = React.useCallback(() => {
+    void tracker.applyCameraConstraints({
+      exposureMode:
+        cameraControls.exposureMode === "none" ? "" : cameraControls.exposureMode,
+      exposureTime: cameraControls.exposureTime,
+      whiteBalanceMode:
+        cameraControls.whiteBalanceMode === "none"
+          ? ""
+          : cameraControls.whiteBalanceMode,
+      colorTemperature: cameraControls.colorTemperature,
+    })
+  }, [cameraControls, tracker])
 
   return (
     <div className="grid gap-3 lg:grid-cols-2">
@@ -266,6 +302,164 @@ export function VisionPanel({
           </div>
 
           <Separator />
+          <div className="text-xs font-medium">Camera</div>
+          <div className="grid gap-2">
+            <Label className="text-xs">Device</Label>
+            <Select
+              value={cameraDeviceId || "default"}
+              disabled={running}
+              onValueChange={(value) =>
+                tracker.setCameraDeviceId(value === "default" ? "" : value)
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default camera</SelectItem>
+                {cameraDevices.map((device, index) => (
+                  <SelectItem key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Camera ${index + 1}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <NumField
+              label="Capture W"
+              value={cam.widthPx}
+              step={16}
+              min={160}
+              disabled={running}
+              onChange={(v) => patchCamera({ widthPx: Math.round(v) })}
+            />
+            <NumField
+              label="Capture H"
+              value={cam.heightPx}
+              step={16}
+              min={120}
+              disabled={running}
+              onChange={(v) => patchCamera({ heightPx: Math.round(v) })}
+            />
+            <NumField
+              label="Camera FPS"
+              value={cam.fps}
+              step={1}
+              min={1}
+              max={60}
+              disabled={running}
+              onChange={(v) => patchCamera({ fps: Math.round(v) })}
+            />
+            <NumField
+              label="Analysis W"
+              value={cam.analysisWidthPx}
+              step={16}
+              min={80}
+              max={cam.widthPx}
+              onChange={(v) => patchCamera({ analysisWidthPx: Math.round(v) })}
+            />
+            <NumField
+              label="Analysis H"
+              value={cam.analysisHeightPx}
+              step={16}
+              min={60}
+              max={cam.heightPx}
+              onChange={(v) => patchCamera({ analysisHeightPx: Math.round(v) })}
+            />
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <div className="grid gap-1">
+              <Label className="text-xs">Exposure mode</Label>
+              <Select
+                value={cameraControls.exposureMode}
+                disabled={!running}
+                onValueChange={(value) => setCameraControl({ exposureMode: value })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No change</SelectItem>
+                  <SelectItem value="manual">manual</SelectItem>
+                  <SelectItem value="continuous">continuous</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-xs">White balance mode</Label>
+              <Select
+                value={cameraControls.whiteBalanceMode}
+                disabled={!running}
+                onValueChange={(value) =>
+                  setCameraControl({ whiteBalanceMode: value })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No change</SelectItem>
+                  <SelectItem value="manual">manual</SelectItem>
+                  <SelectItem value="continuous">continuous</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-xs">Exposure time</Label>
+              <Input
+                type="number"
+                step={1}
+                value={cameraControls.exposureTime}
+                disabled={!running}
+                placeholder="if supported"
+                onChange={(event) =>
+                  setCameraControl({ exposureTime: event.target.value })
+                }
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-xs">Color temperature</Label>
+              <Input
+                type="number"
+                step={1}
+                value={cameraControls.colorTemperature}
+                disabled={!running}
+                placeholder="if supported"
+                onChange={(event) =>
+                  setCameraControl({ colorTemperature: event.target.value })
+                }
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!running}
+              onClick={applyCameraControls}
+            >
+              Apply camera controls
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!running}
+              onClick={() => tracker.refreshCameraReport()}
+            >
+              Refresh camera report
+            </Button>
+          </div>
+          {cameraControlError ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+              {cameraControlError}
+            </p>
+          ) : null}
+          <pre className="max-h-32 overflow-auto rounded-md border bg-muted/30 p-2 font-mono text-[10px] leading-tight">
+            {cameraReportText}
+          </pre>
+
+          <Separator />
           <div className="text-xs font-medium">Controller</div>
           <div className="grid gap-2">
             <Label className="text-xs">Mode</Label>
@@ -281,6 +475,21 @@ export function VisionPanel({
                 <SelectItem value="pi">PI (proportional-integral)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="flex items-center justify-between rounded-md border p-2">
+            <div>
+              <div className="text-sm font-medium">Feedforward</div>
+              <div className="text-muted-foreground text-xs">
+                Adds image-velocity compensation to the feedback command.
+              </div>
+            </div>
+            <Switch
+              checked={ctrl.feedforwardEnabled}
+              onCheckedChange={(v) =>
+                patchController({ feedforwardEnabled: Boolean(v) })
+              }
+              aria-label="Feedforward"
+            />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <NumField
@@ -310,6 +519,39 @@ export function VisionPanel({
               step={0.01}
               disabled={ctrl.mode !== "pi"}
               onChange={(v) => patchController({ kiMmSPerPxS: v })}
+            />
+            <NumField
+              label="FF gain"
+              value={ctrl.feedforwardGain}
+              step={0.05}
+              min={0}
+              disabled={!ctrl.feedforwardEnabled}
+              onChange={(v) => patchController({ feedforwardGain: v })}
+            />
+            <NumField
+              label="mm / px"
+              value={ctrl.mmPerPx}
+              step={0.005}
+              min={0}
+              disabled={!ctrl.feedforwardEnabled}
+              onChange={(v) => patchController({ mmPerPx: v })}
+            />
+            <NumField
+              label="Image vel alpha"
+              value={ctrl.imageVelocityAlpha}
+              step={0.05}
+              min={0}
+              max={1}
+              disabled={!ctrl.feedforwardEnabled}
+              onChange={(v) => patchController({ imageVelocityAlpha: v })}
+            />
+            <NumField
+              label="Motor accel"
+              value={ctrl.motorAccelerationMmS2}
+              step={1}
+              min={0}
+              disabled={!ctrl.feedforwardEnabled}
+              onChange={(v) => patchController({ motorAccelerationMmS2: v })}
             />
             <NumField
               label="Control sign"
@@ -367,6 +609,8 @@ export function VisionPanel({
     </div>
   )
 }
+
+export const VisionPanel = React.memo(VisionPanelComponent)
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (

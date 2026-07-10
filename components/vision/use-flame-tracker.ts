@@ -6,6 +6,7 @@ import { fw } from "@/lib/firmware"
 import {
   DEFAULT_VISION_CONFIG,
   MIN_AUTO_CONTROL_CONFIDENCE,
+  type CameraOptions,
   type ControllerOptions,
   type DetectorOptions,
   type VisionConfig,
@@ -13,6 +14,7 @@ import {
 import {
   computePIRecommendation,
   computePRecommendation,
+  noteCommandedVelocity,
   resetControllerState,
   type ControllerState,
   type Recommendation,
@@ -24,6 +26,14 @@ import type { VisionRuntime } from "@/lib/vision/opencv-types"
 // If the process loop hasn't produced a fresh frame within this window, the
 // auto-control fail-safe sends zero velocity (e.g. the operator left the tab).
 const STALE_MS = 500
+const MASK_EVERY_N_FRAMES = 4
+
+export type CameraConstraintValues = {
+  exposureMode: string
+  exposureTime: string
+  whiteBalanceMode: string
+  colorTemperature: string
+}
 
 export type TrackerStatus = {
   tracking: boolean
@@ -42,16 +52,16 @@ function velocityCommand(rec: Recommendation): string {
 
 function drawOverlay(
   canvas: HTMLCanvasElement | null,
-  video: HTMLVideoElement,
+  sourceCanvas: HTMLCanvasElement,
   detection: Detection,
   setpointYPx: number,
 ) {
   if (!canvas) return
-  if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth
-  if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight
+  if (canvas.width !== sourceCanvas.width) canvas.width = sourceCanvas.width
+  if (canvas.height !== sourceCanvas.height) canvas.height = sourceCanvas.height
   const ctx = canvas.getContext("2d")
   if (!ctx) return
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+  ctx.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height)
 
   // Setpoint line.
   ctx.strokeStyle = "rgba(56,189,248,0.9)"
@@ -92,6 +102,21 @@ function drawOverlay(
   ctx.fill()
 }
 
+type CameraAdvancedConstraints = MediaTrackConstraintSet & {
+  exposureMode?: string
+  exposureTime?: number
+  whiteBalanceMode?: string
+  colorTemperature?: number
+}
+
+function cameraReport(track: MediaStreamTrack | null) {
+  if (!track) return "Camera not started."
+  const capabilities =
+    typeof track.getCapabilities === "function" ? track.getCapabilities() : {}
+  const settings = typeof track.getSettings === "function" ? track.getSettings() : {}
+  return JSON.stringify({ settings, capabilities }, null, 2)
+}
+
 function drawMask(canvas: HTMLCanvasElement | null, mask: ImageData) {
   if (!canvas) return
   if (canvas.width !== mask.width) canvas.width = mask.width
@@ -115,6 +140,10 @@ export function useFlameTracker(params: {
   const [running, setRunning] = useState(false)
   const [autoControl, setAutoControl] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [cameraControlError, setCameraControlError] = useState<string | null>(null)
+  const [cameraReportText, setCameraReportText] = useState("Camera not started.")
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([])
+  const [cameraDeviceId, setCameraDeviceId] = useState("")
   const [status, setStatus] = useState<TrackerStatus>({
     tracking: false,
     confidence: 0,
@@ -142,6 +171,7 @@ export function useFlameTracker(params: {
   })
 
   const streamRef = useRef<MediaStream | null>(null)
+  const activeTrackRef = useRef<MediaStreamTrack | null>(null)
   const lastProcessMsRef = useRef(0)
   const lastStatusMsRef = useRef(0)
   const frameIdRef = useRef(0)
@@ -154,6 +184,41 @@ export function useFlameTracker(params: {
     detection: Detection | null
     recommendation: Recommendation
   }>({ atMs: 0, detection: null, recommendation: null })
+
+  const refreshCameraReport = useCallback(() => {
+    setCameraReportText(cameraReport(activeTrackRef.current))
+  }, [])
+
+  const enumerateCameraDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setCameraDevices([])
+      return
+    }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevices = devices.filter((device) => device.kind === "videoinput")
+      setCameraDevices(videoDevices)
+      setCameraDeviceId((current) => {
+        if (current && videoDevices.some((device) => device.deviceId === current)) {
+          return current
+        }
+        return videoDevices[0]?.deviceId ?? ""
+      })
+    } catch {
+      setCameraDevices([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void enumerateCameraDevices()
+    navigator.mediaDevices?.addEventListener?.("devicechange", enumerateCameraDevices)
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.(
+        "devicechange",
+        enumerateCameraDevices,
+      )
+    }
+  }, [enumerateCameraDevices])
 
   // ---- Fail-safe auto-control sender (independent of the video loop) --------
   useEffect(() => {
@@ -172,7 +237,14 @@ export function useFlameTracker(params: {
           ? latest.recommendation
           : null
       autoSendBusyRef.current = true
+      const commandedMmS = rec ? rec.velocity_mm_s : 0
       void sendRef.current(velocityCommand(rec))
+        .then(() => {
+          controllerStateRef.current = noteCommandedVelocity(
+            controllerStateRef.current,
+            commandedMmS,
+          )
+        })
         .catch(() => {})
         .finally(() => {
           autoSendBusyRef.current = false
@@ -196,16 +268,25 @@ export function useFlameTracker(params: {
     lastProcessMsRef.current = now
     if (video.readyState < 2 || !video.videoWidth) return
 
-    if (frame.width !== video.videoWidth) frame.width = video.videoWidth
-    if (frame.height !== video.videoHeight) frame.height = video.videoHeight
+    const analysisWidth = Math.max(
+      1,
+      Math.min(cfg.camera.analysisWidthPx, video.videoWidth),
+    )
+    const analysisHeight = Math.max(
+      1,
+      Math.min(cfg.camera.analysisHeightPx, video.videoHeight),
+    )
+    if (frame.width !== analysisWidth) frame.width = analysisWidth
+    if (frame.height !== analysisHeight) frame.height = analysisHeight
     const fctx = frame.getContext("2d", { willReadFrequently: true })
     if (!fctx) return
     fctx.drawImage(video, 0, 0, frame.width, frame.height)
     const imageData = fctx.getImageData(0, 0, frame.width, frame.height)
     processBusyRef.current = true
+    const includeMask = frameIdRef.current % MASK_EVERY_N_FRAMES === 0
 
     void vision
-      .detect(imageData, cfg.detector)
+      .detect(imageData, cfg.detector, includeMask)
       .then(({ detection, mask }) => {
         if (!runningRef.current) return
         const result =
@@ -217,8 +298,14 @@ export function useFlameTracker(params: {
                 controllerStateRef.current,
                 now,
               )
-            : computePRecommendation(detection, frame.height, cfg.controller)
-        if (result.controllerState) controllerStateRef.current = result.controllerState
+            : computePRecommendation(
+                detection,
+                frame.height,
+                cfg.controller,
+                controllerStateRef.current,
+                now,
+              )
+        controllerStateRef.current = result.controllerState
 
         frameIdRef.current += 1
         const message = buildTrackingMessage({
@@ -238,8 +325,8 @@ export function useFlameTracker(params: {
           recommendation: result.recommendation,
         }
 
-        drawOverlay(overlayCanvasRef.current, video, detection, result.setpointYPx)
-        drawMask(maskCanvasRef.current, mask)
+        drawOverlay(overlayCanvasRef.current, frame, detection, result.setpointYPx)
+        if (mask) drawMask(maskCanvasRef.current, mask)
 
         const instFps = sinceLast > 0 ? 1000 / sinceLast : 0
         emaFpsRef.current = emaFpsRef.current
@@ -291,6 +378,7 @@ export function useFlameTracker(params: {
       const cam = configRef.current.camera
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
+          ...(cameraDeviceId ? { deviceId: { exact: cameraDeviceId } } : {}),
           width: { ideal: cam.widthPx },
           height: { ideal: cam.heightPx },
           frameRate: { ideal: cam.fps },
@@ -298,12 +386,15 @@ export function useFlameTracker(params: {
         audio: false,
       })
       streamRef.current = stream
+      activeTrackRef.current = stream.getVideoTracks()[0] ?? null
       const video = videoRef.current
       if (video) {
         video.srcObject = stream
         await video.play().catch(() => {})
       }
       controllerStateRef.current = resetControllerState()
+      setCameraReportText(cameraReport(activeTrackRef.current))
+      void enumerateCameraDevices()
       runningRef.current = true
       setRunning(true)
     } catch (err) {
@@ -311,13 +402,15 @@ export function useFlameTracker(params: {
       runningRef.current = false
       setRunning(false)
     }
-  }, [])
+  }, [cameraDeviceId, enumerateCameraDevices])
 
   const stopCamera = useCallback(() => {
     runningRef.current = false
     setRunning(false)
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
+    activeTrackRef.current = null
+    setCameraReportText("Camera not started.")
     const video = videoRef.current
     if (video) video.srcObject = null
     controllerStateRef.current = resetControllerState()
@@ -356,7 +449,15 @@ export function useFlameTracker(params: {
       latest.detection.confidence >= MIN_AUTO_CONTROL_CONFIDENCE
         ? latest.recommendation
         : null
-    void sendRef.current(velocityCommand(rec)).catch(() => {})
+    const commandedMmS = rec ? rec.velocity_mm_s : 0
+    void sendRef.current(velocityCommand(rec))
+      .then(() => {
+        controllerStateRef.current = noteCommandedVelocity(
+          controllerStateRef.current,
+          commandedMmS,
+        )
+      })
+      .catch(() => {})
   }, [])
 
   const calibrate = useCallback(() => {
@@ -370,6 +471,40 @@ export function useFlameTracker(params: {
     void sendRef.current(fw.motorCalibrateAxis()).catch(() => {})
   }, [])
 
+  const applyCameraConstraints = useCallback(
+    async (values: CameraConstraintValues) => {
+      const track = activeTrackRef.current
+      if (!track?.applyConstraints) {
+        setCameraControlError("Camera constraints are unavailable for this source.")
+        return
+      }
+
+      const advanced: CameraAdvancedConstraints = {}
+      if (values.exposureMode) advanced.exposureMode = values.exposureMode
+      if (values.exposureTime.trim()) {
+        advanced.exposureTime = Number(values.exposureTime)
+      }
+      if (values.whiteBalanceMode) {
+        advanced.whiteBalanceMode = values.whiteBalanceMode
+      }
+      if (values.colorTemperature.trim()) {
+        advanced.colorTemperature = Number(values.colorTemperature)
+      }
+
+      try {
+        await track.applyConstraints({ advanced: [advanced] })
+        setCameraControlError(null)
+      } catch (err) {
+        setCameraControlError(
+          err instanceof Error ? err.message : "Failed to apply camera controls",
+        )
+      } finally {
+        setCameraReportText(cameraReport(track))
+      }
+    },
+    [],
+  )
+
   /** Called by the E-STOP: just drop auto control (E-STOP already halts motion). */
   const disableAutoControl = useCallback(() => {
     controllerStateRef.current = resetControllerState()
@@ -379,8 +514,20 @@ export function useFlameTracker(params: {
 
   // ---- Config patchers ------------------------------------------------------
   const patchController = useCallback(
-    (partial: Partial<ControllerOptions>) =>
-      setConfig((c) => ({ ...c, controller: { ...c.controller, ...partial } })),
+    (partial: Partial<ControllerOptions>) => {
+      const state = controllerStateRef.current
+      controllerStateRef.current = resetControllerState(
+        null,
+        state.lastCommandedMmS,
+        state.estimatedAppliedMmS,
+      )
+      setConfig((c) => ({ ...c, controller: { ...c.controller, ...partial } }))
+    },
+    [],
+  )
+  const patchCamera = useCallback(
+    (partial: Partial<CameraOptions>) =>
+      setConfig((c) => ({ ...c, camera: { ...c.camera, ...partial } })),
     [],
   )
   const patchDetector = useCallback(
@@ -409,15 +556,23 @@ export function useFlameTracker(params: {
     config,
     patchController,
     patchDetector,
+    patchCamera,
     running,
     autoControl,
     cameraError,
+    cameraControlError,
+    cameraReportText,
+    cameraDevices,
+    cameraDeviceId,
     status,
     startCamera,
     stopCamera,
     setAutoControlOn,
     sendOnce,
     calibrate,
+    applyCameraConstraints,
+    refreshCameraReport,
+    setCameraDeviceId,
     disableAutoControl,
   }
 }

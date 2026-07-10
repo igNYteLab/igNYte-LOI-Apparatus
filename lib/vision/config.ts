@@ -26,6 +26,14 @@ export type ControllerOptions = {
   kpMmSPerPx: number
   kiMmSPerPxS: number
   maxIntegralErrorPxS: number
+  feedforwardEnabled: boolean
+  feedforwardGain: number
+  /** Camera scale calibration for feedforward. */
+  mmPerPx: number
+  /** 0..1 smoothing factor for measured target image velocity. */
+  imageVelocityAlpha: number
+  /** Estimated stage acceleration limit used by the feedforward motor model. */
+  motorAccelerationMmS2: number
   /** Velocity clamp (mm/s). */
   maxVelocityMmS: number
   /** +1 or -1 — maps image error sign to motor direction (validate on rig). */
@@ -36,8 +44,17 @@ export type ControllerOptions = {
   autoControlHz: number
 }
 
+export type CameraOptions = {
+  widthPx: number
+  heightPx: number
+  fps: number
+  /** Frame size sent to OpenCV. Lower than camera capture size for speed. */
+  analysisWidthPx: number
+  analysisHeightPx: number
+}
+
 export type VisionConfig = {
-  camera: { widthPx: number; heightPx: number; fps: number }
+  camera: CameraOptions
   detector: DetectorOptions
   controller: ControllerOptions
 }
@@ -45,7 +62,13 @@ export type VisionConfig = {
 export const DEFAULT_VISION_CONFIG: VisionConfig = {
   // Kept modest: OpenCV runs in a worker, but smaller frames still reduce
   // detection latency and leave more CPU headroom for the dashboard.
-  camera: { widthPx: 640, heightPx: 480, fps: 30 },
+  camera: {
+    widthPx: 640,
+    heightPx: 480,
+    fps: 30,
+    analysisWidthPx: 320,
+    analysisHeightPx: 240,
+  },
   detector: {
     hsvLow: { h: 5, s: 80, v: 80 },
     hsvHigh: { h: 45, s: 255, v: 255 },
@@ -59,6 +82,11 @@ export const DEFAULT_VISION_CONFIG: VisionConfig = {
     kpMmSPerPx: 0.1,
     kiMmSPerPxS: 0.01,
     maxIntegralErrorPxS: 1000,
+    feedforwardEnabled: false,
+    feedforwardGain: 0.5,
+    mmPerPx: 0.05,
+    imageVelocityAlpha: 0.35,
+    motorAccelerationMmS2: 40.0,
     maxVelocityMmS: 25.0,
     controlSign: -1,
     processFps: 12,

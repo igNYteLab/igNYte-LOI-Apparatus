@@ -13,13 +13,14 @@ export type OpenCvMat = any
 
 export type VisionDetectResult = {
   detection: Detection
-  mask: ImageData
+  mask: ImageData | null
 }
 
 export type VisionRuntime = {
   detect: (
     imageData: ImageData,
     options: DetectorOptions,
+    includeMask: boolean,
   ) => Promise<VisionDetectResult>
   dispose: () => void
 }
