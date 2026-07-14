@@ -50,7 +50,35 @@
         </fieldset>
 
         <fieldset>
-          <legend>Detector HSV Range</legend>
+          <legend>Bright Flame HSV Range</legend>
+          <label>
+            <span class="label-row">Hue low <output id="brightHLowValue"></output></span>
+            <input id="brightHLow" type="range" min="0" max="179" value="0" />
+          </label>
+          <label>
+            <span class="label-row">Hue high <output id="brightHHighValue"></output></span>
+            <input id="brightHHigh" type="range" min="0" max="179" value="60" />
+          </label>
+          <label>
+            <span class="label-row">Sat low <output id="brightSLowValue"></output></span>
+            <input id="brightSLow" type="range" min="0" max="255" value="0" />
+          </label>
+          <label>
+            <span class="label-row">Sat high <output id="brightSHighValue"></output></span>
+            <input id="brightSHigh" type="range" min="0" max="255" value="90" />
+          </label>
+          <label>
+            <span class="label-row">Val low <output id="brightVLowValue"></output></span>
+            <input id="brightVLow" type="range" min="0" max="255" value="170" />
+          </label>
+          <label>
+            <span class="label-row">Val high <output id="brightVHighValue"></output></span>
+            <input id="brightVHigh" type="range" min="0" max="255" value="255" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Colored Flame HSV Range</legend>
           <label>
             <span class="label-row">Hue low <output id="hLowValue"></output></span>
             <input id="hLow" type="range" min="0" max="179" />
@@ -229,7 +257,7 @@
         <article class="viewer">
           <div class="viewer-header">
             <h2>Binary Mask</h2>
-            <span>white = selected color range</span>
+            <span>white = bright mask OR colored mask</span>
           </div>
           <div class="canvas-wrap">
             <canvas id="maskCanvas"></canvas>

@@ -5,18 +5,28 @@ export const DEFAULT_CONFIG = {
     fps: 30,
   },
   detector: {
-    hsvLow: {
-      h: 5,
-      s: 80,
+    brightHsvLow: {
+      h: 0,
+      s: 0,
+      v: 170,
+    },
+    brightHsvHigh: {
+      h: 60,
+      s: 90,
+      v: 255,
+    },
+    coloredHsvLow: {
+      h: 0,
+      s: 40,
       v: 80,
     },
-    hsvHigh: {
+    coloredHsvHigh: {
       h: 45,
       s: 255,
       v: 255,
     },
-    minAreaPx: 500,
-    kernelSizePx: 5,
+    minAreaPx: 50,
+    kernelSizePx: 2,
   },
   controller: {
     mode: "p",

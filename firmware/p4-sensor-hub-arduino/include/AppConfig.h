@@ -17,7 +17,7 @@ constexpr uint8_t kI2cScl = 8;
 constexpr uint8_t kSpiSck = 28;
 constexpr uint8_t kSpiMosi = 29;
 constexpr uint8_t kSpiMiso = 30;
-constexpr uint8_t kChipSelects[] = {21, 20, 36, 35, 34, 31};
+constexpr uint8_t kChipSelects[] = {21, 35, 20, 36, 34, 31};
 
 constexpr uint8_t kMotorDir = 48;
 constexpr uint8_t kMotorStep = 49;

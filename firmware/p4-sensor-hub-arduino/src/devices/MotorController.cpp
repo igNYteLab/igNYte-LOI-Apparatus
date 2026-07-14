@@ -49,9 +49,13 @@ void MotorController::configureDriver() {
   driver_.pdn_disable(true);
   driver_.mstep_reg_select(true);
   driver_.I_scale_analog(false);
-  driver_.rms_current(kMotorCurrentMa, 0.25f);  // 0.25f is the multiplier for TMC2209
+  driver_.rms_current(kMotorCurrentMa, 0.25f);  // 0.25f is the multiplier for hold current
   driver_.microsteps(Config::kMicrosteps);
-  driver_.toff(5);
+  // SpreadCycle settings (change if needed for noise or vibration issues)
+  driver_.toff(5);                              // spreadcycle settings - recirculation time
+//driver_.tbl(2);                               // spreadcycle settings - measurement "blank time"
+//driver_.hend(4);                              // spreadcycle settings - basic hysteresis value
+//driver_.hstrt(0);                             // spreadcycle settings - hysteresis start value
   driver_.en_spreadCycle(true);
   driver_.pwm_autoscale(true);
   //driver_.TPWMTHRS(0);

@@ -19,6 +19,18 @@ const els = {
   widthInput: document.getElementById("widthInput"),
   heightInput: document.getElementById("heightInput"),
   fpsInput: document.getElementById("fpsInput"),
+  brightHLow: document.getElementById("brightHLow"),
+  brightHLowValue: document.getElementById("brightHLowValue"),
+  brightHHigh: document.getElementById("brightHHigh"),
+  brightHHighValue: document.getElementById("brightHHighValue"),
+  brightSLow: document.getElementById("brightSLow"),
+  brightSLowValue: document.getElementById("brightSLowValue"),
+  brightSHigh: document.getElementById("brightSHigh"),
+  brightSHighValue: document.getElementById("brightSHighValue"),
+  brightVLow: document.getElementById("brightVLow"),
+  brightVLowValue: document.getElementById("brightVLowValue"),
+  brightVHigh: document.getElementById("brightVHigh"),
+  brightVHighValue: document.getElementById("brightVHighValue"),
   hLow: document.getElementById("hLow"),
   hLowValue: document.getElementById("hLowValue"),
   hHigh: document.getElementById("hHigh"),
@@ -189,6 +201,12 @@ function updateControllerModeButton() {
 
 function bindSliderReadouts() {
   const bindings = [
+    [els.brightHLow, els.brightHLowValue, (value) => value],
+    [els.brightHHigh, els.brightHHighValue, (value) => value],
+    [els.brightSLow, els.brightSLowValue, (value) => value],
+    [els.brightSHigh, els.brightSHighValue, (value) => value],
+    [els.brightVLow, els.brightVLowValue, (value) => value],
+    [els.brightVHigh, els.brightVHighValue, (value) => value],
     [els.hLow, els.hLowValue, (value) => value],
     [els.hHigh, els.hHighValue, (value) => value],
     [els.sLow, els.sLowValue, (value) => value],
@@ -204,7 +222,9 @@ function bindSliderReadouts() {
 
   for (const [input, output, format] of bindings) {
     const update = () => {
-      output.value = format(input.value)
+      const formattedValue = format(input.value)
+      output.value = formattedValue
+      output.textContent = formattedValue
     }
     input.addEventListener("input", update)
     update()
@@ -216,12 +236,18 @@ function applyDefaultConfig() {
   els.heightInput.value = DEFAULT_CONFIG.camera.heightPx
   els.fpsInput.value = DEFAULT_CONFIG.camera.fps
 
-  els.hLow.value = DEFAULT_CONFIG.detector.hsvLow.h
-  els.hHigh.value = DEFAULT_CONFIG.detector.hsvHigh.h
-  els.sLow.value = DEFAULT_CONFIG.detector.hsvLow.s
-  els.sHigh.value = DEFAULT_CONFIG.detector.hsvHigh.s
-  els.vLow.value = DEFAULT_CONFIG.detector.hsvLow.v
-  els.vHigh.value = DEFAULT_CONFIG.detector.hsvHigh.v
+  els.brightHLow.value = DEFAULT_CONFIG.detector.brightHsvLow.h
+  els.brightHHigh.value = DEFAULT_CONFIG.detector.brightHsvHigh.h
+  els.brightSLow.value = DEFAULT_CONFIG.detector.brightHsvLow.s
+  els.brightSHigh.value = DEFAULT_CONFIG.detector.brightHsvHigh.s
+  els.brightVLow.value = DEFAULT_CONFIG.detector.brightHsvLow.v
+  els.brightVHigh.value = DEFAULT_CONFIG.detector.brightHsvHigh.v
+  els.hLow.value = DEFAULT_CONFIG.detector.coloredHsvLow.h
+  els.hHigh.value = DEFAULT_CONFIG.detector.coloredHsvHigh.h
+  els.sLow.value = DEFAULT_CONFIG.detector.coloredHsvLow.s
+  els.sHigh.value = DEFAULT_CONFIG.detector.coloredHsvHigh.s
+  els.vLow.value = DEFAULT_CONFIG.detector.coloredHsvLow.v
+  els.vHigh.value = DEFAULT_CONFIG.detector.coloredHsvHigh.v
   els.minAreaInput.value = DEFAULT_CONFIG.detector.minAreaPx
   els.kernelInput.value = DEFAULT_CONFIG.detector.kernelSizePx
 
@@ -612,16 +638,28 @@ function readDetectorOptions() {
   let kernelSizePx = numberValue(els.kernelInput, 5)
   if (kernelSizePx % 2 === 0) kernelSizePx += 1
   return {
-    hsvLow: [
-      numberValue(els.hLow, DEFAULT_CONFIG.detector.hsvLow.h),
-      numberValue(els.sLow, DEFAULT_CONFIG.detector.hsvLow.s),
-      numberValue(els.vLow, DEFAULT_CONFIG.detector.hsvLow.v),
+    brightHsvLow: [
+      numberValue(els.brightHLow, DEFAULT_CONFIG.detector.brightHsvLow.h),
+      numberValue(els.brightSLow, DEFAULT_CONFIG.detector.brightHsvLow.s),
+      numberValue(els.brightVLow, DEFAULT_CONFIG.detector.brightHsvLow.v),
       0,
     ],
-    hsvHigh: [
-      numberValue(els.hHigh, DEFAULT_CONFIG.detector.hsvHigh.h),
-      numberValue(els.sHigh, DEFAULT_CONFIG.detector.hsvHigh.s),
-      numberValue(els.vHigh, DEFAULT_CONFIG.detector.hsvHigh.v),
+    brightHsvHigh: [
+      numberValue(els.brightHHigh, DEFAULT_CONFIG.detector.brightHsvHigh.h),
+      numberValue(els.brightSHigh, DEFAULT_CONFIG.detector.brightHsvHigh.s),
+      numberValue(els.brightVHigh, DEFAULT_CONFIG.detector.brightHsvHigh.v),
+      255,
+    ],
+    coloredHsvLow: [
+      numberValue(els.hLow, DEFAULT_CONFIG.detector.coloredHsvLow.h),
+      numberValue(els.sLow, DEFAULT_CONFIG.detector.coloredHsvLow.s),
+      numberValue(els.vLow, DEFAULT_CONFIG.detector.coloredHsvLow.v),
+      0,
+    ],
+    coloredHsvHigh: [
+      numberValue(els.hHigh, DEFAULT_CONFIG.detector.coloredHsvHigh.h),
+      numberValue(els.sHigh, DEFAULT_CONFIG.detector.coloredHsvHigh.s),
+      numberValue(els.vHigh, DEFAULT_CONFIG.detector.coloredHsvHigh.v),
       255,
     ],
     minAreaPx: numberValue(
