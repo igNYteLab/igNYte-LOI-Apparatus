@@ -1,3 +1,9 @@
+<!--
+Primary author: Will Andre Pasimio Llaneta (wpl5304)
+Project: IgNYte-FPA
+Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+-->
+
 # Possible Issues
 
 Risk register for firmware/hardware bring-up. These are not confirmed bugs.
@@ -6,7 +12,7 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 ### UART0 / Flow 2 On GPIO37-GPIO38
 
-**Status:** still open.
+**Status:** still open / blocked by flow-controller hardware validation.
 
 **Risk:** GPIO37/GPIO38 are default UART0 boot/download/log pins, but Flow 2 also uses them.
 
@@ -14,7 +20,7 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 **Likely fix:** try `HardwareSerial Flow2Serial(3);` while keeping physical pins GPIO37/GPIO38.
 
-**Test:** build, flash, confirm USB logs, then loopback GPIO37 TX to GPIO38 RX.
+**Test:** build, flash, confirm USB logs, then loopback GPIO37 TX to GPIO38 RX. Repeat with the real Flow 2 controller once available.
 
 ### Strapping Pins Used As CS/UART
 
@@ -42,19 +48,19 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 ### Motor Command Queue Behavior
 
-**Status:** queue ownership fixed; velocity stale-command behavior fixed; rapid absolute target behavior still open.
+**Status:** queue ownership fixed; velocity stale-command behavior fixed; true e-stop still open.
 
 **Current:** `commandTask` queues motor commands; `motorTask` owns `MotorController` and applies queued commands.
 
-**Risk:** queue depth is 8, so rapid absolute target updates could briefly queue stale targets.
+**Remaining risk:** queue depth is 8, so rapid absolute target updates could briefly queue stale targets. This is lower risk than velocity tracking because `motor.target_mm` is an absolute target and normal target motion now requires calibrated limits.
 
 **Verified/fixed:** `motor.velocity_mm_s` now uses a one-slot latest-wins mailbox plus a `2000 ms` watchdog, so stale camera velocity commands are not replayed later.
 
-**Later:** consider a latest-command mailbox for absolute target updates while preserving priority handling for `stop`/future `estop`.
+**Later:** consider a latest-command mailbox for absolute target updates only if the web app starts streaming frequent absolute targets. Preserve priority handling for `stop`/future `estop`.
 
 **Verified/fixed:** safe boot state, motor enable/disable commands, bounded StallGuard test/axis-calibration commands, endstop reporting, and warning-only queue setup status are implemented.
 
-**Still open:** add a true emergency-stop command/path. Normal target/velocity motion has calibrated software limits only after `motor.calibrate_axis` succeeds.
+**Still open:** add a true emergency-stop command/path. `motor.stop` is a controlled software stop, not a hard power cutoff. Normal target/velocity motion is gated by calibrated software limits after `motor.calibrate_axis` succeeds.
 
 ### TMC2209 Single-Wire UART
 
@@ -77,6 +83,8 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 **Current code:** `IoExpander::setMotorMicrosteps(4)` returns false and produces the `motor_microsteps_invalid` boot warning. `MotorController::configureDriver()` then enables `mstep_reg_select(true)` and writes the 4-microstep setting over TMC2209 UART.
 
 **Remaining risk:** if UART configuration fails, the driver may use an unexpected pin-selected fallback mode while firmware continues calculating motion at `400 steps/mm`.
+
+**Current mitigation:** `motor.calibrate_axis` calls `configureDriver()` before calibration motion, so the required calibration workflow can recover TMC UART configuration if the initial boot write was missed. Operators should still verify `motor.driver_status` before trusting motion scale.
 
 **Verified/fixed:** firmware now warns with `microstep_pins_unverified` if the MCP23017 is missing and `motor.driver_status` reports UART microstep readback.
 
@@ -140,13 +148,13 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 ### MAX31856 Setup
 
-**Status:** driver throughput fixed; thermocouple wiring/type validation still open.
+**Status:** telemetry path validated; thermocouple wiring/type/fault validation should still be recorded in final validation.
 
 **Risk:** code assumes K-type thermocouples.
 
-**Verified/fixed:** MAX31856 devices initialize and are now configured for continuous conversion so thermocouple reads no longer block the sensor scheduler.
+**Verified/fixed:** MAX31856 devices initialize, publish telemetry, and are now configured for continuous conversion so thermocouple reads no longer block the sensor scheduler.
 
-**Still open:** wire real thermocouples and verify ambient reading/fault byte on one channel before trusting all channels.
+**Still open:** record final per-channel thermocouple validation in `docs/final-validation.md`, including realistic ambient/known-temperature readings and fault bytes.
 
 ### D6F ADC Calibration
 
@@ -160,11 +168,21 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 ### Bronkhorst Baud / Node
 
-**Status:** still open.
+**Status:** still open / pending flow-controller hardware.
 
 **Risk:** code uses `38400,n,8,1` and node `0x80`; controllers may differ.
 
-**Test:** read-only command first; try known baud rates; validate with laptop `bronkhorst-propar` if needed.
+**Test:** read-only command first; try known baud rates; validate with laptop `bronkhorst-propar` if needed. Do not claim physical flow validation until the real controllers are connected.
+
+### Real Flame / Glass-Tube OpenCV Validation
+
+**Status:** prototype validated on printed targets/video-style flame imagery; final apparatus validation still open.
+
+**Risk:** the current OpenCV.js tracker uses HSV thresholding with a bright low-saturation mask OR an orange/yellow colored mask. Real flame through a glass tube may add glare, reflections, exposure shifts, and saturation changes that were not present in printed-target tests.
+
+**Current mitigation:** the prototype exposes separate sliders for bright and colored HSV masks, morphology kernel size, minimum contour area, P/PI mode, feedforward, `mmPerPx`, and control sign. Auto control is off by default and should only be enabled after one-shot command direction is verified.
+
+**Test:** record the final working HSV ranges, contour behavior, setpoint, gains, feedforward state, and observed lag/overshoot in `docs/final-validation.md`.
 
 ## Lower Priority / Later Improvements
 
@@ -200,7 +218,7 @@ Risk register for firmware/hardware bring-up. These are not confirmed bugs.
 
 **Remaining behavior:** a Flow 1 timeout can still delay Flow 2 in `flowTask`.
 
-**Current note:** `motorTask` runs every 1 ms and updates the motion planner. ESP32-P4 MCPWM generates STEP pulses continuously in hardware, and PCNT counts commanded pulses. PCNT does not detect physically skipped motor steps.
+**Current note:** `motorTask` runs every 1 ms and updates the motion planner. ESP32-P4 MCPWM generates STEP pulses continuously in hardware, and PCNT counts commanded pulses. PCNT does not detect physically skipped motor steps, so final motion-scale validation still requires measuring actual stage travel.
 
 **Later:** shorten flow timeouts, consider separate flow tasks, use non-blocking flow reads if needed, and consider an independent hardware/timer cutoff because continuous MCPWM output can continue if the motor task or scheduler fails completely.
 

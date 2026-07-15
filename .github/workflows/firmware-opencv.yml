@@ -1,3 +1,7 @@
+# Primary author: Will Andre Pasimio Llaneta (wpl5304)
+# Project: IgNYte-FPA
+# Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+
 name: Firmware and OpenCV JS prototype checks
 
 on:

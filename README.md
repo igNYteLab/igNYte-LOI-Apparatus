@@ -1,2 +1,220 @@
+<!--
+Primary author: Will Andre Pasimio Llaneta (wpl5304)
+Project: IgNYte-FPA
+Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+-->
+
 # IgNYte-FPA
-Supporting firmware for the NYU Tandon IgNYte Lab fire propagation apparatus (FPA), including sensor acquisition, motorized camera-stage control, and instrument interfacing for an experimental platform informed by ISO 4589-2, ASTM D2863, and NASA STD-6001B.
+
+IgNYte-FPA contains the firmware, hardware files, validation notes, and prototype companion software for the NYU Tandon IgNYte Lab fire propagation apparatus sensor hub.
+
+Primary author: Will Andre Pasimio Llaneta (`wpl5304`)
+
+This repository focuses on the apparatus-side system: sensor acquisition, motorized vertical camera-stage control, serial command/telemetry output, hardware bring-up notes, and camera-tracking prototypes. The production IgNYte web application lives in a separate repository:
+
+- IgNYte web app: [ikasturirangan/ignyte](https://github.com/ikasturirangan/ignyte)
+
+## What This Repo Contains
+
+```text
+IgNYte-FPA/
+  firmware/
+    p4-sensor-hub-arduino/   Active ESP32-P4 PlatformIO firmware
+    p4-sensor-hub/           Older ESP-IDF skeleton kept for reference
+  hardware/
+    motherV1/                KiCad board files and JLCPCB manufacturing exports
+    README.md                Board overview and validation summary
+    errata.md                Known board issues and next-revision notes
+  software/
+    camera/                  OpenCV.js flame-tracking prototype
+    flow-controller/         Flow-controller software notes/placeholders
+    host-control/            Host-control software notes/placeholders
+  tools/
+    tmc_stall_sweep.py       Motor/StallGuard tuning helper script
+  docs/
+    project-context.md       Current architecture and design context
+    firmware-serial-protocol.md
+                             JSONL command, telemetry, and quick-reference protocol
+    final-validation.md      Final validation checklist and observed results
+    possible-issues.md       Open risks and follow-up items
+    change-log.md            Confirmed fixes and design changes
+  .github/workflows/
+    firmware-opencv.yml      Firmware and OpenCV prototype CI checks
+```
+
+## System Scope
+
+The active firmware targets a DFRobot FireBeetle 2 ESP32-P4 mounted on the `motherV1` interface board. The firmware currently supports:
+
+- Thermocouple telemetry through MAX31856 devices
+- SHT45 humidity/temperature telemetry
+- BME688 environmental telemetry
+- SEN0496 oxygen sensor telemetry
+- I2C scanning and sensor status reporting
+- TMC2209-controlled vertical camera-stage motion
+- Hardware-timed STEP generation for smoother motor velocity control
+- Axis calibration and software motion limits
+- Flow-controller command placeholders / integration path
+- Newline-delimited JSON command and telemetry over USB serial
+
+The OpenCV.js work in this repo is a standalone prototype used to validate flame segmentation and tracking behavior before or alongside integration into the IgNYte web app.
+
+## Web App Relationship
+
+The user-facing IgNYte web app is not owned by this repository. The web app connects to the firmware over Web Serial, displays sensor telemetry, and can host the flame-tracking controls once integrated.
+
+Use this repo for:
+
+- Firmware changes
+- Hardware board files and errata
+- Serial protocol documentation
+- Motor and sensor bring-up notes
+- Standalone OpenCV.js tracking experiments
+- Final validation and handoff documentation
+
+Use [ikasturirangan/ignyte](https://github.com/ikasturirangan/ignyte) for:
+
+- Production web UI
+- Web Serial integration UI
+- Dashboard and experiment workflow changes
+- App-side database/schema behavior
+- Deployable web app behavior
+
+## Firmware
+
+Active firmware path:
+
+```text
+firmware/p4-sensor-hub-arduino/
+```
+
+Build the default ESP32-P4 firmware:
+
+```powershell
+pio run -d firmware/p4-sensor-hub-arduino
+```
+
+Run the native command-parser unit tests:
+
+```powershell
+pio test -d firmware/p4-sensor-hub-arduino -e native
+```
+
+Build the motor-only debug firmware:
+
+```powershell
+pio run -d firmware/p4-sensor-hub-arduino -e esp32-p4-motor-debug
+```
+
+The motor-only debug build defines `IGNYTE_MOTOR_ONLY_DEBUG=1`, which keeps the command and motor tasks active while skipping the sensor and flow-controller tasks.
+
+## Serial Protocol
+
+Firmware commands and telemetry use newline-delimited JSON over USB serial at `115200` baud.
+
+Start here for command examples, response formats, telemetry messages, and host-parser expectations:
+
+- [docs/firmware-serial-protocol.md](docs/firmware-serial-protocol.md)
+
+Example command:
+
+```json
+{"cmd":"motor.status"}
+```
+
+Example telemetry/status line:
+
+```json
+{"type":"status","t_us":1007909,"component":"boot","status":"starting"}
+```
+
+## Hardware
+
+The current board revision is `motherV1`, a fabricated and tested breakout/interface DAQ board for:
+
+- FireBeetle 2 ESP32-P4
+- TMC2209 motor driver
+- MAX31856 thermocouple interfaces
+- I2C sensors
+- Analog sensor support
+- RS232 flow-controller interfaces
+- MCP23017 I/O expansion
+- Power distribution and buck converters
+
+Start here:
+
+- [hardware/README.md](hardware/README.md)
+- [hardware/errata.md](hardware/errata.md)
+
+Important bring-up note: keep motor and motor-driver power available during firmware boot when validating motor configuration. If the TMC2209 is unpowered during initialization, configuration writes such as microstep setup may be missed.
+
+## Operator Bring-Up Flow
+
+Use this order when bringing up the full apparatus from a cold start:
+
+1. Power the `motherV1` board and the motor-driver/motor supply before firmware boot when validating motor behavior.
+2. Open the IgNYte web app or the standalone OpenCV.js prototype.
+3. Connect to the ESP32-P4 over Web Serial / USB serial.
+4. Confirm boot JSON reaches the host and ends in `boot ready` or documented `boot ready_with_warnings`.
+5. Run `motor.driver_status` and confirm `connection_ok:true` and the expected microstep readback.
+6. Run `sensor.status` and confirm required sensors are online.
+7. Enable the motor with `motor.enable`.
+8. Run `motor.calibrate_axis` before any normal target, velocity, or closed-loop tracking motion.
+9. Confirm `motor.status` reports `limits_valid:true`.
+10. Test one small manual move or one `Send Current Recommendation Once` command before enabling auto control.
+11. Start camera tracking and verify the mask, contour, bottom point, and command sign are correct.
+12. Enable auto control only after the stage is clear, calibrated, and moving in the expected direction.
+
+## Camera / OpenCV Prototype
+
+The standalone OpenCV.js prototype lives at:
+
+```text
+software/camera/opencv-js-prototype/
+```
+
+It is used to test flame segmentation, bottom-of-flame tracking, P/PI/feed-forward control behavior, and serial motor command generation before relying on the production web app.
+
+Start here:
+
+- [software/camera/README.md](software/camera/README.md)
+- [software/camera/opencv-js-prototype/README.md](software/camera/opencv-js-prototype/README.md)
+
+## CI
+
+GitHub Actions workflow:
+
+```text
+.github/workflows/firmware-opencv.yml
+```
+
+Current CI checks:
+
+- PlatformIO ESP32-P4 firmware build
+- Native command-parser unit tests
+- JavaScript syntax checks for the OpenCV.js prototype
+
+## Documentation
+
+Documentation starts at:
+
+- [docs/README.md](docs/README.md)
+
+Most useful documents:
+
+- [docs/project-context.md](docs/project-context.md): architecture, firmware layout, pin maps, assumptions, and current design context
+- [docs/firmware-serial-protocol.md](docs/firmware-serial-protocol.md): JSON command and telemetry protocol
+- [docs/final-validation.md](docs/final-validation.md): final validation checklist and observed validation results
+- [docs/possible-issues.md](docs/possible-issues.md): open risks and unresolved follow-up items
+- [docs/change-log.md](docs/change-log.md): confirmed changes and debugging history
+
+## Current Project Status
+
+At the time of this README update:
+
+- Sensor telemetry has been validated for the main environmental and thermocouple sensors.
+- Motor command/control paths are active and guarded by calibrated software limits.
+- Hardware-timed step generation has been added to reduce software step-generation bottlenecks.
+- The OpenCV.js flame tracker has been prototyped with dual flame masks and serial command output.
+- The IgNYte web app is expected to handle the production operator UI in the separate web app repository.
+- Flow-controller testing remains dependent on flow-controller hardware availability.

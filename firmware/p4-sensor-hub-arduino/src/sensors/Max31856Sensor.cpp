@@ -1,3 +1,7 @@
+// Primary author: Will Andre Pasimio Llaneta (wpl5304)
+// Project: IgNYte-FPA
+// Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+
 #include "sensors/Max31856Sensor.h"
 
 Max31856Sensor::Max31856Sensor(const char* name, uint8_t csPin, uint16_t rateHz)

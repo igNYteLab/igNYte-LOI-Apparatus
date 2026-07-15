@@ -1,3 +1,7 @@
+// Primary author: Will Andre Pasimio Llaneta (wpl5304)
+// Project: IgNYte-FPA
+// Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+
 #include "sensors/Sht45Sensor.h"
 
 Sht45Sensor::Sht45Sensor(const char* name, TwoWire& wire, uint16_t rateHz)

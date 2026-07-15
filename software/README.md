@@ -1,3 +1,9 @@
+<!--
+Primary author: Will Andre Pasimio Llaneta (wpl5304)
+Project: IgNYte-FPA
+Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+-->
+
 # Software
 
 Host-side and companion software for the IgNYte-FPA system.

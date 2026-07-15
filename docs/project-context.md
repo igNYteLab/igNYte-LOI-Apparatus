@@ -1,3 +1,9 @@
+<!--
+Primary author: Will Andre Pasimio Llaneta (wpl5304)
+Project: IgNYte-FPA
+Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+-->
+
 # IgNYte-FPA Project Context
 
 This document captures the major firmware design decisions, assumptions, and known follow-up work for the IgNYte-FPA sensor hub. It is intended for future contributors and future Codex/Claude sessions
@@ -14,7 +20,9 @@ The custom board sits between a laptop and the experimental apparatus hardware. 
 - streaming timestamped data to the laptop
 - accepting laptop commands for flow and motor control
 
-The laptop is expected to run camera/OpenCV processing. The laptop will track the flame and send motor/flow commands to the ESP32-P4. The ESP32-P4 should keep motor response independent from slower sensor reads and logging.
+The laptop or web app is expected to run camera/OpenCV processing. The host tracks the flame and sends motor/flow commands to the ESP32-P4. The ESP32-P4 should keep motor response independent from slower sensor reads and logging.
+
+The production operator UI lives in the separate IgNYte web app repository. This repo keeps the firmware, hardware files, serial protocol, final validation records, and the standalone OpenCV.js prototype used to validate the tracking/control logic before or alongside web app integration.
 
 ## Firmware Architecture Decision
 
@@ -48,7 +56,7 @@ xTaskCreate(thermocoupleTask, "thermo", 6144, nullptr, 2, nullptr);
 xTaskCreate(flowTask, "flow", 6144, nullptr, 2, nullptr);
 ```
 
-The normal firmware creates all sensor and flow polling tasks in `setup()`. During some motor-only debug sessions these tasks may be temporarily commented out, but they must be re-enabled for continuous sensor and flow sample publishing.
+The normal firmware creates all sensor and flow polling tasks in `setup()`. A compile-time motor-only debug build is available through the `esp32-p4-motor-debug` PlatformIO environment, which defines `IGNYTE_MOTOR_ONLY_DEBUG=1` and skips sensor/flow initialization and tasks while keeping the command and motor tasks active.
 
 Current task roles:
 
@@ -318,7 +326,7 @@ Current mechanical assumptions:
 | StallGuard cool threshold | TCOOLTHRS 1500 |
 | Axis calibration speed | 10 mm/s |
 | Axis calibration max travel | 210 mm |
-| Motor current | 900 mA RMS |
+| Motor current | 950 mA RMS configured |
 | Motor direction inverted | true |
 
 MS1/MS2 are also connected to an MCP23017 on the I2C bus. Current mapping:
@@ -330,7 +338,7 @@ MS1/MS2 are also connected to an MCP23017 on the I2C bus. Current mapping:
 
 The MCP23017 address is currently `0x20`, configurable by jumper pads and stored in `Addresses::kMcp23017`. The current `4`-microstep setting is selected through the TMC2209 UART with `mstep_reg_select(true)`. The existing MCP23017 pin helper only maps the standalone-driver choices `8`, `16`, `32`, and `64`, so it cannot represent the current setting and reports `motor_microsteps_invalid` during boot. The UART readback from `motor.driver_status` is the authoritative check after configuration.
 
-The motor driver and motor power supply must be on before the ESP32-P4 boots. If the TMC2209 is unpowered during initial firmware configuration, it can miss the UART microstep command and remain at a different driver setting than the firmware expects. Any mismatch between `Config::kMicrosteps` and `motor.driver_status` microstep readback changes the real millimeters-per-step scale, so after boot use `motor.driver_status` and confirm the reported `microsteps` matches `Config::kMicrosteps`.
+The motor driver and motor power supply should be on before the ESP32-P4 boots. If the TMC2209 is unpowered during initial firmware configuration, it can miss the UART microstep command and remain at a different driver setting than the firmware expects. `motor.calibrate_axis` calls `configureDriver()` before calibration motion, so the required calibration flow can recover the driver configuration if initial boot configuration was missed. Still, any mismatch between `Config::kMicrosteps` and `motor.driver_status` microstep readback changes the real millimeters-per-step scale, so use `motor.driver_status` and confirm the reported `microsteps` matches `Config::kMicrosteps`.
 
 The expected stage is a vertical FUYU-style NEMA14 screw stage with a 2 mm lead. The endstop is currently assumed to be a bottom/home switch, so home is position `0 mm` and upward travel is positive.
 
@@ -377,6 +385,33 @@ Important follow-up:
 - validate MCPWM frequency, PCNT position, finite target moves, and immediate-stop latency on hardware
 - consider an independent hardware or timer-backed motion cutoff for a total motor-task/scheduler failure
 - after hardware bring-up, refactor `main.cpp` so command parsing and telemetry publishers live outside the task/orchestration file
+
+## Camera Tracking / Web App Integration State
+
+The standalone OpenCV.js prototype lives in `software/camera/opencv-js-prototype/`. It is intentionally browser-only and uses OpenCV.js from the official CDN for fast iteration.
+
+Current tracking approach:
+
+- Capture webcam frames through browser `getUserMedia`.
+- Convert frames to HSV.
+- Build a bright low-saturation flame mask.
+- Build an orange/yellow colored flame mask.
+- Combine masks with `combinedMask = brightMask OR coloredMask`.
+- Clean the mask with morphology open/close.
+- Select the largest external contour above `minAreaPx`.
+- Track the bottom-most contour point as the flame-front target.
+- Use only the vertical error between target and configurable setpoint row.
+
+Current controller options:
+
+- P mode
+- PI mode with clamped integral state
+- optional feedforward based on estimated image-plane flame velocity
+- configurable `controlSign`, `mmPerPx`, max velocity, processing FPS, and auto-control rate
+
+The standalone prototype can connect to firmware over browser Web Serial and send one-shot or rate-limited `motor.velocity_mm_s` commands. Auto control is off by default and should only be enabled after driver status, motor enable, axis calibration, tracking stability, and one-shot command direction are verified.
+
+The production IgNYte web app should own the operator UI, Web Serial connection, camera stream, safety gating, and experiment workflow. Vision logic should emit tracking and recommendation data; firmware remains the final authority on calibrated limits, stops, and driver state.
 
 ## Bronkhorst Flow Controller Design
 
@@ -446,7 +481,7 @@ Current examples:
 {"cmd":"sensor.status"}
 ```
 
-The concise operator reference for every current JSON command is `docs/jsoncommands.md`.
+The operator quick reference and full protocol details for every current JSON command are in `docs/firmware-serial-protocol.md`.
 
 Current command responses are status messages, also JSONL:
 
@@ -478,7 +513,7 @@ The code builds successfully, but these hardware/runtime assumptions still need 
 - TMC2209 driver and motor supply are powered before boot/configuration so UART setup commands are actually received.
 - TMC2209 driver address is `0b00`.
 - TMC2209 sense resistor is `0.05 ohm`.
-- 900 mA RMS current is appropriate for the selected NEMA14 motor and driver thermals.
+- 950 mA RMS configured current is appropriate for the selected NEMA14 motor and driver thermals.
 - MAX31856 thermocouples are type K.
 - BME688 address is `0x77`; verify whether it should be `0x76`.
 - SEN0496 address is `0x70`; verify whether its DIP switch selects `0x71`-`0x73`.
@@ -504,10 +539,11 @@ Recommended order:
 11. Verify endstop polarity and StallGuard detection behavior.
 12. Test one Bronkhorst channel with read-measure only.
 13. Test Bronkhorst setpoint write at low/safe flow.
-14. Add a laptop logger that records JSONL with laptop receive timestamps.
-15. Add command IDs and stricter error reporting.
-16. Run `motor.calibrate_axis`, validate calibrated software limits, then test small `motor.target_mm` and `motor.velocity_mm_s` moves before closed-loop camera tracking.
-17. Add safety limits for flow range and a true emergency-stop path.
+14. Run `motor.calibrate_axis`, validate calibrated software limits, then test small `motor.target_mm` and `motor.velocity_mm_s` moves before closed-loop camera tracking.
+15. Verify OpenCV/web app mask, contour, bottom-point, controller sign, and one-shot command behavior before auto control.
+16. Add or verify a host logger that records JSONL with laptop receive timestamps.
+17. Add command IDs and stricter error reporting if the web app needs request/response matching.
+18. Add safety limits for flow range and a true emergency-stop path.
 
 ## Firmware Build Command
 

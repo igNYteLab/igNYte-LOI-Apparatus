@@ -1,3 +1,9 @@
+<!--
+Primary author: Will Andre Pasimio Llaneta (wpl5304)
+Project: IgNYte-FPA
+Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+-->
+
 # Firmware Serial Protocol
 
 This page describes the current USB serial JSON protocol used by the IgNYte-FPA ESP32-P4 firmware. It is intended for host software, including a web app or desktop bridge that sends commands and parses telemetry.
@@ -38,6 +44,70 @@ Most firmware-generated JSON output includes:
 ## Input Commands
 
 All commands use a top-level `cmd` string.
+
+### Command Quick Reference
+
+Send one JSON object per line over USB serial. Most queued motor commands first emit:
+
+```json
+{"type":"status","t_us":123456,"component":"motor","status":"command_queued"}
+```
+
+The command is then serviced by `motorTask`, which may emit a later state or completion message.
+
+Common command parse/status errors:
+
+```json
+{"type":"status","t_us":123456,"component":"command","status":"json_error","detail":"InvalidInput"}
+{"type":"status","t_us":123456,"component":"command","status":"unknown","detail":"bad.command"}
+{"type":"status","t_us":123456,"component":"motor","status":"missing_field","detail":"mm"}
+{"type":"status","t_us":123456,"component":"motor","status":"invalid_field","detail":"stall_test_range"}
+```
+
+Motor commands:
+
+```json
+{"cmd":"motor.status"}
+{"cmd":"motor.enable"}
+{"cmd":"motor.disable"}
+{"cmd":"motor.target_mm","mm":20.0}
+{"cmd":"motor.velocity_mm_s","mm_s":-2.0}
+{"cmd":"motor.stop"}
+{"cmd":"motor.home_here"}
+{"cmd":"motor.driver_status"}
+{"cmd":"motor.stall_config","sgthrs":160,"tcoolthrs":1500}
+{"cmd":"motor.stall_status"}
+{"cmd":"motor.stall_test","mm_s":-2.0,"max_travel_mm":5.0}
+{"cmd":"motor.calibrate_axis","max_travel_mm":210.0}
+```
+
+Sensor and bus commands:
+
+```json
+{"cmd":"i2c.scan"}
+{"cmd":"sensor.status"}
+{"cmd":"sensor.rate","sensor":"tc1","hz":1}
+{"cmd":"sensor.rate","sensor":"sht45","hz":10}
+{"cmd":"sensor.rate","sensor":"bme688","hz":2}
+{"cmd":"sensor.rate","sensor":"o2","hz":1}
+```
+
+Flow command:
+
+```json
+{"cmd":"flow.set","channel":1,"pct":25.0}
+```
+
+Automatic output messages:
+
+```json
+{"type":"status","t_us":1007909,"component":"boot","status":"starting"}
+{"type":"sample","kind":"thermocouple","sensor":"tc1","t_us":123456,"temp_c":25.1,"cold_junction_c":24.6,"fault":0,"valid":true,"ok":true}
+{"type":"sample","kind":"environment","sensor":"sht45","t_us":123456,"temp_c":24.2,"rh_pct":41.9,"ok":true}
+{"type":"sample","kind":"environment","sensor":"bme688","t_us":123456,"temp_c":25.0,"pressure_hpa":1008.1,"rh_pct":39.8,"gas_kohm":8.2,"ok":true}
+{"type":"sample","kind":"oxygen","sensor":"o2","t_us":123456,"o2_vol_pct":20.95,"ok":true}
+{"type":"sample","kind":"flow_controller","sensor":"flow1","t_us":123456,"raw":16000,"pct":50.0,"ok":true}
+```
 
 ### Motor Commands
 

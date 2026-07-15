@@ -1,3 +1,7 @@
+// Primary author: Will Andre Pasimio Llaneta (wpl5304)
+// Project: IgNYte-FPA
+// Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+
 export function detectTarget(cv, sourceCanvas, options) {
   const src = cv.imread(sourceCanvas)
   const rgb = new cv.Mat()

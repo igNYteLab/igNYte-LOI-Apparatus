@@ -1,3 +1,9 @@
+<!--
+Primary author: Will Andre Pasimio Llaneta (wpl5304)
+Project: IgNYte-FPA
+Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+-->
+
 # Change Log
 
 Use this file for confirmed problems/fixes and meaningful design changes. Keep suspected or unverified risks in `docs/possible-issues.md`.
@@ -13,6 +19,38 @@ Why:
 
 Verification:
 ```
+
+## 2026-07-15 - Consolidate Serial Command Documentation
+
+What changed:
+
+- Merged the standalone JSON command quick reference into `docs/firmware-serial-protocol.md`.
+- Removed `docs/jsoncommands.md` so the firmware serial protocol is the single source of truth for command examples and response formats.
+- Updated `docs/README.md` and `docs/project-context.md` to point users to the consolidated protocol document.
+
+Why:
+
+The command quick reference and full serial protocol were starting to duplicate each other, which makes doc drift more likely as firmware commands change.
+
+Verification:
+
+- Checked repository references for `docs/jsoncommands.md`; remaining mentions are historical changelog entries.
+
+## 2026-07-15 - Update Handoff Documentation
+
+What changed:
+
+- Expanded the root `README.md` into a full repository landing page with repo scope, web app ownership, build/test commands, CI summary, hardware/software pointers, and operator bring-up flow.
+- Updated `docs/project-context.md` to reflect the current motor-only debug build flag, hardware-timed motor control, driver reconfiguration during calibration, current motor constants, and OpenCV/web app integration state.
+- Updated `docs/possible-issues.md` to separate verified firmware fixes from still-open handoff risks, including flow-controller validation, true emergency stop, host logging, and real-flame-through-glass validation.
+
+Why:
+
+The project is approaching handoff, so the top-level docs need to help a new operator or maintainer understand where things live, what is validated, and what still requires lab confirmation.
+
+Verification:
+
+- Cross-checked updated values against `firmware/p4-sensor-hub-arduino/include/AppConfig.h`, `MotorController.cpp`, and the OpenCV prototype config.
 
 ## 2026-07-08 - Tune Motor Driver Profiles And Calibration Speed
 

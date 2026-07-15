@@ -1,3 +1,9 @@
+<!--
+Primary author: Will Andre Pasimio Llaneta (wpl5304)
+Project: IgNYte-FPA
+Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+-->
+
 # motherV1
 
 `motherV1` is a fabricated and tested custom DAQ/interface motherboard for the IgNYte-FPA ESP32-P4 sensor hub. It consolidates the apparatus support electronics onto one PCB, mounting the FireBeetle 2 ESP32-P4, sensor breakout interfaces, TMC2209 stepper-driver interface, RS232 flow-controller interfaces, and 20 V / 5 V / 3.3 V power distribution used for fire-propagation apparatus bring-up and firmware integration.

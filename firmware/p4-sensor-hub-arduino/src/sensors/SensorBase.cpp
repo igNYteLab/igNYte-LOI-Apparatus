@@ -1,3 +1,7 @@
+// Primary author: Will Andre Pasimio Llaneta (wpl5304)
+// Project: IgNYte-FPA
+// Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+
 #include "sensors/SensorBase.h"
 
 SensorBase::SensorBase(const char* name, uint16_t rateHz) : name_(name), rateHz_(rateHz) {}

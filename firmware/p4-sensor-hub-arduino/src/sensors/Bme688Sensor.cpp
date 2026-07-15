@@ -1,3 +1,7 @@
+// Primary author: Will Andre Pasimio Llaneta (wpl5304)
+// Project: IgNYte-FPA
+// Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+
 #include "sensors/Bme688Sensor.h"
 
 Bme688Sensor::Bme688Sensor(const char* name, TwoWire& wire, uint16_t rateHz, uint8_t address)
