@@ -30,10 +30,17 @@ type CameraSource = {
   streamUrl?: string
 }
 
-type CameraState = "prompt" | "granted" | "denied" | "error" | "unavailable" | "ip"
+type CameraState =
+  | "prompt"
+  | "granted"
+  | "denied"
+  | "error"
+  | "unavailable"
+  | "ip"
 
 export type CameraController = {
   getRecordingStream: () => Promise<MediaStream>
+  captureFrameJpeg: (quality?: number) => Promise<Blob>
   stopRecordingCapture: () => void
 }
 
@@ -58,7 +65,7 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
       recording,
       variant = "rgb",
     },
-    ref,
+    ref
   ) {
     const videoRef = React.useRef<HTMLVideoElement | null>(null)
     const imageRef = React.useRef<HTMLImageElement | null>(null)
@@ -121,7 +128,7 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
       try {
         const allDevices = await navigator.mediaDevices.enumerateDevices()
         const videoDevices = allDevices.filter(
-          (device) => device.kind === "videoinput",
+          (device) => device.kind === "videoinput"
         )
         setDevices(videoDevices)
         setError(null)
@@ -130,7 +137,7 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
       } catch (err) {
         setDevices([])
         setError(
-          err instanceof Error ? err.message : "Unable to enumerate cameras.",
+          err instanceof Error ? err.message : "Unable to enumerate cameras."
         )
         setState(streamUrl ? "ip" : "error")
       }
@@ -168,12 +175,12 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
               ? "Camera permission was denied."
               : err instanceof Error
                 ? err.message
-                : "Unable to start this camera.",
+                : "Unable to start this camera."
           )
           return null
         }
       },
-      [enumerateDevices, stopUsbStream],
+      [enumerateDevices, stopUsbStream]
     )
 
     const captureIpStream = React.useCallback(() => {
@@ -201,7 +208,7 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
         draw()
       } catch {
         throw new Error(
-          "Video capture failed. Check that the IP camera sends CORS headers.",
+          "Video capture failed. Check that the IP camera sends CORS headers."
         )
       }
 
@@ -216,6 +223,61 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
 
       return canvas.captureStream(10)
     }, [stopCanvasPump])
+
+    const captureFrameJpeg = React.useCallback(
+      (quality = 0.9) =>
+        new Promise<Blob>((resolve, reject) => {
+          const canvas = canvasRef.current
+          if (!canvas) {
+            reject(new Error("Camera frame canvas is unavailable."))
+            return
+          }
+          const context = canvas.getContext("2d")
+          if (!context) {
+            reject(new Error("Browser canvas capture is unavailable."))
+            return
+          }
+
+          try {
+            if (selectedSource?.kind === "ip") {
+              const image = imageRef.current
+              if (
+                !image?.complete ||
+                !image.naturalWidth ||
+                !image.naturalHeight
+              ) {
+                throw new Error("IP camera frame is not loaded yet.")
+              }
+              canvas.width = image.naturalWidth
+              canvas.height = image.naturalHeight
+              context.drawImage(image, 0, 0, canvas.width, canvas.height)
+            } else {
+              const video = videoRef.current
+              if (!video || !video.videoWidth || !video.videoHeight) {
+                throw new Error("USB camera frame is not ready yet.")
+              }
+              canvas.width = video.videoWidth
+              canvas.height = video.videoHeight
+              context.drawImage(video, 0, 0, canvas.width, canvas.height)
+            }
+          } catch (err) {
+            reject(
+              err instanceof Error ? err : new Error("Frame capture failed.")
+            )
+            return
+          }
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) resolve(blob)
+              else reject(new Error("JPEG frame encoding failed."))
+            },
+            "image/jpeg",
+            quality
+          )
+        }),
+      [selectedSource]
+    )
 
     React.useImperativeHandle(
       ref,
@@ -238,6 +300,7 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
           }
           return streamRef.current
         },
+        captureFrameJpeg,
         stopRecordingCapture() {
           stopCanvasPump()
         },
@@ -247,17 +310,21 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
         recordable,
         requestUsbAccess,
         selectedSource,
+        captureFrameJpeg,
         stopCanvasPump,
-      ],
+      ]
     )
 
     React.useEffect(() => {
       void enumerateDevices()
-      navigator.mediaDevices?.addEventListener?.("devicechange", enumerateDevices)
+      navigator.mediaDevices?.addEventListener?.(
+        "devicechange",
+        enumerateDevices
+      )
       return () => {
         navigator.mediaDevices?.removeEventListener?.(
           "devicechange",
-          enumerateDevices,
+          enumerateDevices
         )
       }
     }, [enumerateDevices])
@@ -433,5 +500,5 @@ export const CameraCard = React.forwardRef<CameraController, CameraCardProps>(
         </CardContent>
       </Card>
     )
-  },
+  }
 )

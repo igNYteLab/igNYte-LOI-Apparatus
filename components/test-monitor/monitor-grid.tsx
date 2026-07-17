@@ -74,12 +74,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   fw,
   observedSampleRates,
@@ -98,12 +93,13 @@ import {
   sanitizeArchiveName,
   type TestArchiveEntry,
 } from "@/lib/test-monitor"
+import { createZipBlob } from "@/lib/zip"
 
 type MonitorGridProps = {
   context?: {
     operator?: string
     sample?: string
-    testId?: string
+    psetId?: string
   }
 }
 
@@ -120,6 +116,28 @@ const SAFETY_ITEMS = [
 
 const THERMOCOUPLES = ["tc1", "tc2", "tc3", "tc4"] as const
 const FLOW_CHANNELS = ["flow1", "flow2"] as const
+const DEFAULT_FRAME_EXPORT_FPS = 5
+const JPEG_QUALITY = 0.9
+
+type CapturedFrame = {
+  frameNumber: number
+  filename: string
+  elapsedMs: number
+  perfMs: number
+  blob: Blob
+}
+
+type AssociatedFrame = {
+  frameNumber: number
+  filename: string
+  elapsedMs: number
+  deltaMs: number
+}
+
+type ExportedSample = FirmwareSample & {
+  elapsedMs: number | null
+  associatedFrame: AssociatedFrame | null
+}
 
 const tempChartConfig = {
   tc1: { label: "TC1", color: "var(--chart-1)" },
@@ -170,35 +188,53 @@ export function MonitorGrid({ context }: MonitorGridProps) {
   const rgbCameraRef = React.useRef<CameraController | null>(null)
   const recorderRef = React.useRef<MediaRecorder | null>(null)
   const chunksRef = React.useRef<Blob[]>([])
+  const capturedFramesRef = React.useRef<CapturedFrame[]>([])
+  const frameCaptureTimerRef = React.useRef<number | null>(null)
+  const frameCaptureBusyRef = React.useRef(false)
+  const frameCounterRef = React.useRef(0)
+  const sessionStartPerfMsRef = React.useRef<number | null>(null)
   // Set by the Vision tab so E-STOP can drop auto-control instantly.
   const visionDisableRef = React.useRef<(() => void) | null>(null)
 
   const [safetyOpen, setSafetyOpen] = React.useState(false)
   const [checkedItems, setCheckedItems] = React.useState<boolean[]>(
-    SAFETY_ITEMS.map(() => false),
+    SAFETY_ITEMS.map(() => false)
   )
   const [recording, setRecording] = React.useState(false)
-  const [sessionStartMs, setSessionStartMs] = React.useState<number | null>(null)
+  const [sessionStartMs, setSessionStartMs] = React.useState<number | null>(
+    null
+  )
+  const [sessionStartPerfMs, setSessionStartPerfMs] = React.useState<
+    number | null
+  >(null)
   const [sessionStartedAt, setSessionStartedAt] = React.useState<string | null>(
-    null,
+    null
   )
   const [sessionStoppedAt, setSessionStoppedAt] = React.useState<string | null>(
-    null,
+    null
   )
   const [sessionSamples, setSessionSamples] = React.useState<FirmwareSample[]>(
-    [],
+    []
+  )
+  const [capturedFrameCount, setCapturedFrameCount] = React.useState(0)
+  const [frameExportFps, setFrameExportFps] = React.useState(
+    DEFAULT_FRAME_EXPORT_FPS
   )
   const [videoBlob, setVideoBlob] = React.useState<Blob | null>(null)
   const [videoError, setVideoError] = React.useState<string | null>(null)
+  const [runBaseName, setRunBaseName] = React.useState("")
+  const [runTimestampLabel, setRunTimestampLabel] = React.useState("")
   const [saveOpen, setSaveOpen] = React.useState(false)
   const [saveName, setSaveName] = React.useState("")
+  const [archiveSaving, setArchiveSaving] = React.useState(false)
   const [clockNow, setClockNow] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState("run")
 
   const connected = deviceStatus === "connected"
   const operator =
     context?.operator ?? user?.displayName ?? user?.email ?? "Operator"
-  const sampleLabel = context?.sample ?? context?.testId ?? "LOI specimen"
+  const psetId = context?.psetId ?? context?.sample ?? "unassigned-pset"
+  const sampleLabel = context?.sample ?? psetId
   const checklistComplete = checkedItems.every(Boolean)
   const connection: "Live" | "Connecting" | "Offline" =
     deviceStatus === "connected"
@@ -227,11 +263,11 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     sessionStartedAt && sessionStoppedAt
       ? Math.max(
           0,
-          Math.round(
+          roundMs(
             (new Date(sessionStoppedAt).getTime() -
               new Date(sessionStartedAt).getTime()) /
-              1000,
-          ),
+              1000
+          )
         )
       : 0
 
@@ -280,7 +316,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     }
     if (failures) {
       toast.error(
-        `E-STOP: ${failures} of ${commands.length} commands failed — verify the rig is safe.`,
+        `E-STOP: ${failures} of ${commands.length} commands failed — verify the rig is safe.`
       )
     } else {
       toast.success("E-STOP — motor disabled, gas flows cut to 0%")
@@ -295,13 +331,23 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     }
     setSafetyOpen(false)
     const startMs = Date.now()
+    const startPerfMs = performance.now()
+    const timestampLabel = formatLocalTimestamp(new Date(startMs))
+    const nextRunBaseName = runArchiveBaseName(timestampLabel, psetId)
     chunksRef.current = []
+    capturedFramesRef.current = []
+    frameCounterRef.current = 0
+    sessionStartPerfMsRef.current = startPerfMs
     setSessionStartMs(startMs)
+    setSessionStartPerfMs(startPerfMs)
     setSessionStartedAt(new Date(startMs).toISOString())
     setSessionStoppedAt(null)
     setSessionSamples([])
+    setCapturedFrameCount(0)
     setVideoBlob(null)
     setVideoError(null)
+    setRunBaseName(nextRunBaseName)
+    setRunTimestampLabel(timestampLabel)
     setClockNow(startMs)
     setRecording(true)
 
@@ -314,7 +360,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       const mimeType = preferredRecorderMimeType()
       const recorder = new MediaRecorder(
         stream,
-        mimeType ? { mimeType } : undefined,
+        mimeType ? { mimeType } : undefined
       )
       recorderRef.current = recorder
       recorder.ondataavailable = (event) => {
@@ -330,24 +376,31 @@ export function MonitorGrid({ context }: MonitorGridProps) {
         rgbCameraRef.current?.stopRecordingCapture()
         setSaveOpen(true)
       }
+      startLiveFrameFallback(timestampLabel, startPerfMs)
       recorder.start(1000)
     } catch (err) {
-      setVideoError(err instanceof Error ? err.message : "Video capture failed.")
+      setVideoError(
+        err instanceof Error ? err.message : "Video capture failed."
+      )
       recorderRef.current = null
     }
   }
 
   function stopRecording() {
     const stopMs = Date.now()
+    stopLiveFrameFallback()
     setSessionStoppedAt(new Date(stopMs).toISOString())
-    setSaveName(defaultArchiveName(sessionStartedAt ?? new Date(stopMs).toISOString()))
+    setSaveName(
+      runBaseName ||
+        runArchiveBaseName(formatLocalTimestamp(new Date(stopMs)), psetId)
+    )
     setClockNow(stopMs)
     setRecording(false)
     // Capture every sample received during the session window.
     const start = sessionStartMs ?? stopMs
     const currentLog = getCurrentLog()
     setSessionSamples(
-      currentLog.filter((s) => s.receivedAt >= start && s.receivedAt <= stopMs),
+      currentLog.filter((s) => s.receivedAt >= start && s.receivedAt <= stopMs)
     )
 
     const recorder = recorderRef.current
@@ -360,54 +413,184 @@ export function MonitorGrid({ context }: MonitorGridProps) {
   }
 
   function clearSession() {
+    stopLiveFrameFallback()
     recorderRef.current = null
     chunksRef.current = []
+    capturedFramesRef.current = []
+    frameCounterRef.current = 0
+    sessionStartPerfMsRef.current = null
     setRecording(false)
     setSessionStartMs(null)
+    setSessionStartPerfMs(null)
     setSessionStartedAt(null)
     setSessionStoppedAt(null)
     setSessionSamples([])
+    setCapturedFrameCount(0)
     setVideoBlob(null)
     setVideoError(null)
+    setRunBaseName("")
+    setRunTimestampLabel("")
     setSaveOpen(false)
   }
 
-  function saveArchive() {
+  function stopLiveFrameFallback() {
+    if (frameCaptureTimerRef.current !== null) {
+      window.clearInterval(frameCaptureTimerRef.current)
+      frameCaptureTimerRef.current = null
+    }
+    frameCaptureBusyRef.current = false
+  }
+
+  function startLiveFrameFallback(timestampLabel: string, startPerfMs: number) {
+    stopLiveFrameFallback()
+    const safeFps = clampFrameExportFps(frameExportFps)
+    const intervalMs = Math.max(1, Math.round(1000 / safeFps))
+    const capture = async () => {
+      if (frameCaptureBusyRef.current) return
+      frameCaptureBusyRef.current = true
+      try {
+        const blob = await rgbCameraRef.current?.captureFrameJpeg(JPEG_QUALITY)
+        if (!blob) return
+        const frameNumber = frameCounterRef.current + 1
+        frameCounterRef.current = frameNumber
+        const elapsedMs = roundMs(performance.now() - startPerfMs)
+        const frame: CapturedFrame = {
+          frameNumber,
+          filename: `${timestampLabel}-Frame${String(frameNumber).padStart(
+            6,
+            "0"
+          )}.jpg`,
+          elapsedMs,
+          perfMs: roundMs(startPerfMs + elapsedMs),
+          blob,
+        }
+        capturedFramesRef.current = [...capturedFramesRef.current, frame]
+        setCapturedFrameCount(capturedFramesRef.current.length)
+      } catch {
+        // Fallback capture is best effort; WebM extraction remains primary.
+      } finally {
+        frameCaptureBusyRef.current = false
+      }
+    }
+
+    void capture()
+    frameCaptureTimerRef.current = window.setInterval(
+      () => void capture(),
+      intervalMs
+    )
+  }
+
+  async function saveArchive() {
     if (!sessionStartedAt || !sessionStoppedAt) return
+    setArchiveSaving(true)
     const safeName = sanitizeArchiveName(saveName)
     const videoFile = videoBlob ? `${safeName}.webm` : null
+    let frames: CapturedFrame[]
+    const fallbackFrames = capturedFramesRef.current
+    const fallbackDurationSeconds = Math.max(
+      0,
+      (new Date(sessionStoppedAt).getTime() -
+        new Date(sessionStartedAt).getTime()) /
+        1000
+    )
+    try {
+      frames = videoBlob
+        ? await extractJpegFramesFromVideo(
+            videoBlob,
+            runTimestampLabel ||
+              formatLocalTimestamp(new Date(sessionStartedAt)),
+            clampFrameExportFps(frameExportFps),
+            sessionStartPerfMs,
+            fallbackDurationSeconds
+          )
+        : fallbackFrames
+    } catch (err) {
+      if (!fallbackFrames.length) {
+        toast.error(err instanceof Error ? err.message : "Frame export failed.")
+        setArchiveSaving(false)
+        return
+      }
+      toast.warning(
+        "Video frame extraction failed; using live captured frames."
+      )
+      frames = fallbackFrames
+    }
+    if (!frames.length && fallbackFrames.length) {
+      frames = fallbackFrames
+    }
+    if (!frames.length && videoBlob) {
+      toast.error("No frames could be exported from this recording.")
+      setArchiveSaving(false)
+      return
+    }
+    capturedFramesRef.current = frames
+    setCapturedFrameCount(frames.length)
+    const exportedSamples = buildExportedSamples(
+      sessionSamples,
+      frames,
+      sessionStartPerfMs,
+      sessionStartMs
+    )
+    const frameFiles = frames.map((frame) => ({
+      frameNumber: frame.frameNumber,
+      filename: frame.filename,
+      path: `frames/${frame.filename}`,
+      elapsedMs: frame.elapsedMs,
+      perfMs: frame.perfMs,
+    }))
     const meta = {
       name: saveName.trim() || safeName,
+      runId: safeName,
+      psetId,
       startedAt: sessionStartedAt,
+      startedAtLocal: formatLocalDateTime(new Date(sessionStartedAt)),
       stoppedAt: sessionStoppedAt,
+      stoppedAtLocal: formatLocalDateTime(new Date(sessionStoppedAt)),
       durationSeconds: sessionDurationSeconds,
       sampleCount: sessionSamples.length,
+      frameExportFps: clampFrameExportFps(frameExportFps),
+      frameCount: frames.length,
       operator,
       sample: sampleLabel,
       videoFile,
       videoError,
+      framesDirectory: "frames",
     }
     const entry: TestArchiveEntry = {
       id: createArchiveId(),
       meta,
-      samples: sessionSamples,
+      samples: exportedSamples,
     }
 
-    downloadTextFile(
-      `${safeName}.json`,
-      JSON.stringify({ meta, samples: sessionSamples }, null, 2),
+    const jsonContent = JSON.stringify(
+      { meta, frames: frameFiles, samples: exportedSamples },
+      null,
+      2
     )
-    if (videoBlob && videoFile) {
-      downloadBlobFile(videoFile, videoBlob)
+    const zipEntries = [
+      { path: `${safeName}.json`, data: jsonContent },
+      ...(videoBlob && videoFile ? [{ path: videoFile, data: videoBlob }] : []),
+      ...frames.map((frame) => ({
+        path: `frames/${frame.filename}`,
+        data: frame.blob,
+      })),
+    ]
+    try {
+      downloadBlobFile(`${safeName}.zip`, await createZipBlob(zipEntries))
+      appendTestArchive(entry)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Archive save failed.")
+      setArchiveSaving(false)
+      return
     }
-    appendTestArchive(entry)
     // Mirror the save into the local DB (db/schema.sql shape) — best effort,
     // never blocks the archive flow.
     try {
       recordCompletedTest({
         sample: { externalId: sampleLabel },
         run: {
-          externalTestId: context?.testId ?? null,
+          externalTestId: safeName,
+          psetId,
           startedAt: sessionStartedAt,
           stoppedAt: sessionStoppedAt,
           durationSeconds: sessionDurationSeconds,
@@ -418,6 +601,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       // Local DB is non-critical; ignore failures.
     }
     toast.success("Test archive saved locally")
+    setArchiveSaving(false)
     clearSession()
   }
 
@@ -542,9 +726,16 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                   <MetricPill label="Connection" value={connection} />
                   <MetricPill
                     label="Clock"
-                    value={connected ? (sync.calibrated ? "synced" : "syncing") : "offline"}
+                    value={
+                      connected
+                        ? sync.calibrated
+                          ? "synced"
+                          : "syncing"
+                        : "offline"
+                    }
                   />
                   <MetricPill label="Samples" value={liveSampleCount} />
+                  <MetricPill label="Frames" value={capturedFrameCount} />
                   <MetricPill
                     label="Elapsed"
                     value={
@@ -554,13 +745,34 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                     }
                   />
                 </CardContent>
-                <CardFooter className="flex flex-wrap gap-2">
+                <CardFooter className="flex flex-wrap items-end gap-2">
+                  <div className="grid w-32 gap-1">
+                    <Label htmlFor="frame-export-fps" className="text-xs">
+                      Frame export FPS
+                    </Label>
+                    <Input
+                      id="frame-export-fps"
+                      type="number"
+                      min={1}
+                      max={30}
+                      step={1}
+                      value={frameExportFps}
+                      disabled={recording}
+                      onChange={(event) =>
+                        setFrameExportFps(
+                          clampFrameExportFps(Number(event.target.value))
+                        )
+                      }
+                    />
+                  </div>
                   {!connected ? (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={!serialSupported || deviceStatus === "connecting"}
+                      disabled={
+                        !serialSupported || deviceStatus === "connecting"
+                      }
                       title={
                         serialSupported
                           ? (deviceError ?? undefined)
@@ -582,7 +794,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                     size="sm"
                     disabled={!connected}
                     onClick={() =>
-                      void send(fw.motorCalibrateAxis(), "Axis calibration started")
+                      void send(
+                        fw.motorCalibrateAxis(),
+                        "Axis calibration started"
+                      )
                     }
                   >
                     <IconAdjustments data-icon="inline-start" />
@@ -696,7 +911,9 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                     <IconGauge />
                     Live Sensors
                   </CardTitle>
-                  <CardDescription>Latest reading and sample rate.</CardDescription>
+                  <CardDescription>
+                    Latest reading and sample rate.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="max-h-96 overflow-auto">
                   <SensorReadouts
@@ -708,7 +925,11 @@ export function MonitorGrid({ context }: MonitorGridProps) {
               </Card>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                <MotorControlCard motor={motor} connected={connected} onSend={send} />
+                <MotorControlCard
+                  motor={motor}
+                  connected={connected}
+                  onSend={send}
+                />
                 <FlowControlCard
                   samples={samples}
                   connected={connected}
@@ -831,11 +1052,14 @@ export function MonitorGrid({ context }: MonitorGridProps) {
               <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
                 <div className="grid grid-cols-2 gap-2">
                   <MetricPill label="Session samples" value={liveSampleCount} />
+                  <MetricPill label="JPEG frames" value={capturedFrameCount} />
                   <MetricPill label="Buffer" value={`${log.length} samples`} />
                   <MetricPill
                     label="Started"
                     value={
-                      sessionStartedAt ? sessionStartedAt.slice(11, 19) : "—"
+                      sessionStartedAt
+                        ? formatLocalClock(new Date(sessionStartedAt))
+                        : "—"
                     }
                   />
                   <MetricPill
@@ -848,7 +1072,26 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                   />
                 </div>
               </CardContent>
-              <CardFooter className="flex flex-wrap gap-2">
+              <CardFooter className="flex flex-wrap items-end gap-2">
+                <div className="grid w-32 gap-1">
+                  <Label htmlFor="session-frame-export-fps" className="text-xs">
+                    Frame export FPS
+                  </Label>
+                  <Input
+                    id="session-frame-export-fps"
+                    type="number"
+                    min={1}
+                    max={30}
+                    step={1}
+                    value={frameExportFps}
+                    disabled={recording}
+                    onChange={(event) =>
+                      setFrameExportFps(
+                        clampFrameExportFps(Number(event.target.value))
+                      )
+                    }
+                  />
+                </div>
                 <Button
                   type="button"
                   variant="outline"
@@ -865,7 +1108,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                   disabled={recording}
                   onClick={() => router.push("/dashboard")}
                 >
-                  New Test
+                  New PSET
                 </Button>
                 {recording ? (
                   <Button
@@ -898,7 +1141,11 @@ export function MonitorGrid({ context }: MonitorGridProps) {
 
         <TabsContent value="config" className="min-h-0 overflow-auto">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <MotorControlCard motor={motor} connected={connected} onSend={send} />
+            <MotorControlCard
+              motor={motor}
+              connected={connected}
+              onSend={send}
+            />
             <FlowControlCard
               samples={samples}
               connected={connected}
@@ -947,9 +1194,11 @@ export function MonitorGrid({ context }: MonitorGridProps) {
         saveName={saveName}
         onSaveNameChange={setSaveName}
         sampleCount={sessionSamples.length}
+        frameCount={capturedFrameCount}
         durationSeconds={sessionDurationSeconds}
         videoBlob={videoBlob}
         videoError={videoError}
+        saving={archiveSaving}
         onSave={saveArchive}
         onDiscard={clearSession}
       />
@@ -957,7 +1206,11 @@ export function MonitorGrid({ context }: MonitorGridProps) {
   )
 }
 
-function ConnectionBadge({ state }: { state: "Live" | "Connecting" | "Offline" }) {
+function ConnectionBadge({
+  state,
+}: {
+  state: "Live" | "Connecting" | "Offline"
+}) {
   return (
     <Badge
       variant={
@@ -973,7 +1226,13 @@ function ConnectionBadge({ state }: { state: "Live" | "Connecting" | "Offline" }
   )
 }
 
-function MetricPill({ label, value }: { label: string; value: React.ReactNode }) {
+function MetricPill({
+  label,
+  value,
+}: {
+  label: string
+  value: React.ReactNode
+}) {
   return (
     <div className="rounded-md border p-2">
       <div className="truncate text-xs text-muted-foreground">{label}</div>
@@ -996,7 +1255,7 @@ function SensorReadouts({
   connected: boolean
 }) {
   const present = Object.values(samples).sort((a, b) =>
-    a.sensor.localeCompare(b.sensor),
+    a.sensor.localeCompare(b.sensor)
   )
 
   if (!present.length) {
@@ -1053,7 +1312,7 @@ function describeSample(s: FirmwareSample) {
 function buildSeries(
   windowed: FirmwareSample[],
   sensors: readonly string[],
-  valueOf: (s: FirmwareSample) => number | undefined,
+  valueOf: (s: FirmwareSample) => number | undefined
 ) {
   const origin = windowed[0]?.receivedAt ?? 0
   const rows: Array<Record<string, number>> = []
@@ -1085,10 +1344,13 @@ function TrendChart({
       <div className="text-xs font-medium">{title}</div>
       <ChartContainer
         config={config}
-        className="min-h-[150px] aspect-auto"
+        className="aspect-auto min-h-[150px]"
         initialDimension={{ width: 320, height: 160 }}
       >
-        <LineChart data={data} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}>
+        <LineChart
+          data={data}
+          margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
+        >
           <CartesianGrid vertical={false} />
           <XAxis
             dataKey="elapsedSeconds"
@@ -1118,7 +1380,9 @@ function TrendChart({
                       {config[String(name)]?.label ?? String(name)}
                     </span>
                     <span className="font-mono font-medium text-foreground tabular-nums">
-                      {typeof value === "number" ? value.toFixed(2) : String(value)}
+                      {typeof value === "number"
+                        ? value.toFixed(2)
+                        : String(value)}
                     </span>
                   </>
                 )}
@@ -1148,7 +1412,13 @@ function MotorControlCard({
   connected,
   onSend,
 }: {
-  motor: { enabled: boolean; position_mm: number; position_steps: number; endstop_active: boolean; velocity_mode: boolean } | null
+  motor: {
+    enabled: boolean
+    position_mm: number
+    position_steps: number
+    endstop_active: boolean
+    velocity_mode: boolean
+  } | null
   connected: boolean
   onSend: (command: string, successMessage?: string) => void
 }) {
@@ -1187,12 +1457,55 @@ function MotorControlCard({
           />
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled={!connected} onClick={() => onSend(fw.motorEnable(), "Motor enable sent")}>Enable</Button>
-          <Button size="sm" variant="outline" disabled={!connected} onClick={() => onSend(fw.motorDisable(), "Motor disable sent")}>Disable</Button>
-          <Button size="sm" variant="destructive" disabled={!connected} onClick={() => onSend(fw.motorStop(), "Stop sent")}>Stop</Button>
-          <Button size="sm" variant="outline" disabled={!connected} onClick={() => onSend(fw.motorCalibrateAxis(), "Axis calibration started")}>Calibrate axis</Button>
-          <Button size="sm" variant="outline" disabled={!connected} onClick={() => onSend(fw.motorHomeHere(), "Home-here sent")}>Home here</Button>
-          <Button size="sm" variant="ghost" disabled={!connected} onClick={() => onSend(fw.motorStatus())} aria-label="Refresh motor status">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() => onSend(fw.motorEnable(), "Motor enable sent")}
+          >
+            Enable
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() => onSend(fw.motorDisable(), "Motor disable sent")}
+          >
+            Disable
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={!connected}
+            onClick={() => onSend(fw.motorStop(), "Stop sent")}
+          >
+            Stop
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() =>
+              onSend(fw.motorCalibrateAxis(), "Axis calibration started")
+            }
+          >
+            Calibrate axis
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!connected}
+            onClick={() => onSend(fw.motorHomeHere(), "Home-here sent")}
+          >
+            Home here
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!connected}
+            onClick={() => onSend(fw.motorStatus())}
+            aria-label="Refresh motor status"
+          >
             <IconRefresh />
           </Button>
         </div>
@@ -1214,7 +1527,7 @@ function MotorControlCard({
                   onClick={() =>
                     onSend(
                       fw.motorTargetMm(target),
-                      `Move to ${Math.max(0, target).toFixed(2)} mm`,
+                      `Move to ${Math.max(0, target).toFixed(2)} mm`
                     )
                   }
                 >
@@ -1237,7 +1550,9 @@ function MotorControlCard({
           value={steps}
           onChange={setSteps}
           disabled={!connected}
-          onSend={(n) => onSend(fw.motorMoveSteps(n), `Move ${Math.round(n)} steps sent`)}
+          onSend={(n) =>
+            onSend(fw.motorMoveSteps(n), `Move ${Math.round(n)} steps sent`)
+          }
         />
         <NumberCommand
           label="Velocity (mm/s)"
@@ -1274,12 +1589,22 @@ function FlowControlCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-2">
-          <MetricPill label="Flow 1" value={`${fmt(samples.flow1?.pct, 1)} %`} />
-          <MetricPill label="Flow 2" value={`${fmt(samples.flow2?.pct, 1)} %`} />
+          <MetricPill
+            label="Flow 1"
+            value={`${fmt(samples.flow1?.pct, 1)} %`}
+          />
+          <MetricPill
+            label="Flow 2"
+            value={`${fmt(samples.flow2?.pct, 1)} %`}
+          />
         </div>
         <Field>
           <FieldLabel>Channel</FieldLabel>
-          <Select value={channel} onValueChange={setChannel} disabled={!connected}>
+          <Select
+            value={channel}
+            onValueChange={setChannel}
+            disabled={!connected}
+          >
             <SelectTrigger className="w-full" aria-label="Flow channel">
               <SelectValue />
             </SelectTrigger>
@@ -1322,12 +1647,18 @@ function SensorRateCard({
           <IconGauge />
           Sensor polling
         </CardTitle>
-        <CardDescription>Set a sensor&apos;s rate (0 disables).</CardDescription>
+        <CardDescription>
+          Set a sensor&apos;s rate (0 disables).
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <Field>
           <FieldLabel>Sensor</FieldLabel>
-          <Select value={sensor} onValueChange={setSensor} disabled={!connected}>
+          <Select
+            value={sensor}
+            onValueChange={setSensor}
+            disabled={!connected}
+          >
             <SelectTrigger className="w-full" aria-label="Sensor">
               <SelectValue />
             </SelectTrigger>
@@ -1347,7 +1678,9 @@ function SensorRateCard({
           value={hz}
           onChange={setHz}
           disabled={!connected}
-          onSend={(n) => onSend(fw.sensorRate(sensor, n), `${sensor} → ${Math.round(n)} Hz`)}
+          onSend={(n) =>
+            onSend(fw.sensorRate(sensor, n), `${sensor} → ${Math.round(n)} Hz`)
+          }
         />
       </CardContent>
     </Card>
@@ -1415,7 +1748,7 @@ function StallGuardCard({
             Reconfigure
           </Button>
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <MetricPill
             label="UART"
             value={driver ? (driver.connection_ok ? "ok" : "fail") : "—"}
@@ -1466,7 +1799,7 @@ function StallGuardCard({
           onClick={() =>
             onSend(
               fw.motorStallConfig(Number(sgthrs), Number(tcoolthrs)),
-              "StallGuard configured",
+              "StallGuard configured"
             )
           }
         >
@@ -1505,7 +1838,7 @@ function StallGuardCard({
           onClick={() =>
             onSend(
               fw.motorStallTest(Number(testVel), Number(testTravel)),
-              "Stall test started",
+              "Stall test started"
             )
           }
         >
@@ -1516,7 +1849,9 @@ function StallGuardCard({
           value={homeTravel}
           onChange={setHomeTravel}
           disabled={!connected}
-          onSend={(n) => onSend(fw.motorStallHome(n), "Sensorless homing started")}
+          onSend={(n) =>
+            onSend(fw.motorStallHome(n), "Sensorless homing started")
+          }
         />
       </CardContent>
     </Card>
@@ -1660,7 +1995,7 @@ function ConsoleCard({
         >
           {lines.length ? (
             lines.map((line, index) => (
-              <div key={index} className="whitespace-pre-wrap break-all">
+              <div key={index} className="break-all whitespace-pre-wrap">
                 {line}
               </div>
             ))
@@ -1679,7 +2014,11 @@ function ConsoleCard({
             disabled={!connected}
             aria-label="Console command"
           />
-          <Button type="submit" size="sm" disabled={!connected || !input.trim()}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!connected || !input.trim()}
+          >
             Send
           </Button>
         </form>
@@ -1767,7 +2106,10 @@ function SafetyChecklistDialog({
                   }}
                 />
                 <FieldContent>
-                  <FieldLabel htmlFor={`safety-${index}`} className="font-normal">
+                  <FieldLabel
+                    htmlFor={`safety-${index}`}
+                    className="font-normal"
+                  >
                     {item}
                   </FieldLabel>
                 </FieldContent>
@@ -1795,9 +2137,11 @@ function SaveTestDialog({
   saveName,
   onSaveNameChange,
   sampleCount,
+  frameCount,
   durationSeconds,
   videoBlob,
   videoError,
+  saving,
   onSave,
   onDiscard,
 }: {
@@ -1805,10 +2149,12 @@ function SaveTestDialog({
   saveName: string
   onSaveNameChange: (name: string) => void
   sampleCount: number
+  frameCount: number
   durationSeconds: number
   videoBlob: Blob | null
   videoError: string | null
-  onSave: () => void
+  saving: boolean
+  onSave: () => void | Promise<void>
   onDiscard: () => void
 }) {
   return (
@@ -1817,8 +2163,7 @@ function SaveTestDialog({
         <DialogHeader>
           <DialogTitle>Save test</DialogTitle>
           <DialogDescription>
-            Download sensor samples and the RGB camera recording if capture
-            succeeded.
+            Download a zip containing JSON, RGB video, and exported JPEG frames.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -1834,10 +2179,15 @@ function SaveTestDialog({
         <div className="grid grid-cols-3 gap-2">
           <MetricPill label="Duration" value={`${durationSeconds}s`} />
           <MetricPill label="Samples" value={sampleCount} />
+          <MetricPill label="Frames" value={frameCount} />
           <MetricPill
             label="Video"
             value={
-              videoBlob ? formatBytes(videoBlob.size) : videoError ? "Error" : "None"
+              videoBlob
+                ? formatBytes(videoBlob.size)
+                : videoError
+                  ? "Error"
+                  : "None"
             }
           />
         </div>
@@ -1847,11 +2197,16 @@ function SaveTestDialog({
           </p>
         ) : null}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onDiscard}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={saving}
+            onClick={onDiscard}
+          >
             Discard
           </Button>
-          <Button type="button" onClick={onSave}>
-            Save
+          <Button type="button" disabled={saving} onClick={() => void onSave()}>
+            {saving ? "Saving..." : "Save zip"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1875,6 +2230,229 @@ function createArchiveId() {
   return `archive-${Date.now()}`
 }
 
-function defaultArchiveName(timestamp: string) {
-  return `loi_test_${timestamp.replace(/[:.]/g, "-")}`
+function formatLocalTimestamp(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return (
+    [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join(
+      ""
+    ) +
+    `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  )
+}
+
+function formatLocalDateTime(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${formatLocalClock(date)}`
+}
+
+function formatLocalClock(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+function runArchiveBaseName(timestampLabel: string, psetId: string) {
+  return sanitizeArchiveName(`${timestampLabel}-${psetId}`)
+}
+
+function clampFrameExportFps(value: number) {
+  return Math.min(30, Math.max(1, Math.round(value)))
+}
+
+function frameCountForDuration(durationSeconds: number, fps: number) {
+  const safeDuration = Math.max(0, durationSeconds)
+  const safeFps = clampFrameExportFps(fps)
+  return Math.max(
+    1,
+    Math.floor(Math.max(0, safeDuration - 0.000001) * safeFps) + 1
+  )
+}
+
+function roundMs(value: number) {
+  return Math.round(value * 1000) / 1000
+}
+
+function sampleElapsedMs(
+  sample: FirmwareSample,
+  sessionStartPerfMs: number | null,
+  sessionStartMs: number | null
+) {
+  if (sessionStartPerfMs !== null) {
+    if (typeof sample.syncedMs === "number") {
+      return roundMs(sample.syncedMs - sessionStartPerfMs)
+    }
+    if (typeof sample.perfRecvMs === "number") {
+      return roundMs(sample.perfRecvMs - sessionStartPerfMs)
+    }
+  }
+  if (sessionStartMs !== null) {
+    return roundMs(sample.receivedAt - sessionStartMs)
+  }
+  return null
+}
+
+function associatedFrame(
+  elapsedMs: number | null,
+  frames: CapturedFrame[]
+): AssociatedFrame | null {
+  if (elapsedMs === null || !frames.length) return null
+  let best = frames[0]
+  let bestDelta = Math.abs(frames[0].elapsedMs - elapsedMs)
+  for (let i = 1; i < frames.length; i += 1) {
+    const delta = Math.abs(frames[i].elapsedMs - elapsedMs)
+    if (delta < bestDelta) {
+      best = frames[i]
+      bestDelta = delta
+    }
+  }
+  return {
+    frameNumber: best.frameNumber,
+    filename: best.filename,
+    elapsedMs: best.elapsedMs,
+    deltaMs: roundMs(bestDelta),
+  }
+}
+
+function buildExportedSamples(
+  samples: FirmwareSample[],
+  frames: CapturedFrame[],
+  sessionStartPerfMs: number | null,
+  sessionStartMs: number | null
+): ExportedSample[] {
+  return samples.map((sample) => {
+    const elapsedMs = sampleElapsedMs(
+      sample,
+      sessionStartPerfMs,
+      sessionStartMs
+    )
+    return {
+      ...sample,
+      elapsedMs,
+      associatedFrame: associatedFrame(elapsedMs, frames),
+    }
+  })
+}
+
+async function extractJpegFramesFromVideo(
+  videoBlob: Blob,
+  timestampLabel: string,
+  fps: number,
+  sessionStartPerfMs: number | null,
+  fallbackDurationSeconds: number
+): Promise<CapturedFrame[]> {
+  const url = URL.createObjectURL(videoBlob)
+  const video = document.createElement("video")
+  video.muted = true
+  video.playsInline = true
+  video.preload = "auto"
+  video.src = url
+
+  try {
+    await waitForMediaEvent(video, "loadedmetadata")
+    if (video.readyState < 2) {
+      await waitForMediaEvent(video, "loadeddata")
+    }
+
+    const metadataDuration =
+      Number.isFinite(video.duration) && video.duration > 0
+        ? video.duration
+        : null
+    const exportDuration =
+      metadataDuration ??
+      (Number.isFinite(fallbackDurationSeconds) && fallbackDurationSeconds > 0
+        ? fallbackDurationSeconds
+        : null)
+    if (!exportDuration) return []
+    await seekVideo(video, 0)
+
+    const canvas = document.createElement("canvas")
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    if (!canvas.width || !canvas.height) return []
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("Browser canvas capture is unavailable.")
+
+    const safeFps = clampFrameExportFps(fps)
+    const frameCount = frameCountForDuration(exportDuration, safeFps)
+    const maxSeekTime = Math.max(
+      0,
+      (metadataDuration ?? exportDuration) - 0.001
+    )
+    const frames: CapturedFrame[] = []
+    for (let index = 0; index < frameCount; index += 1) {
+      const elapsedMs = roundMs((index * 1000) / safeFps)
+      const timeSeconds = Math.min(index / safeFps, maxSeekTime)
+      await seekVideo(video, timeSeconds)
+      context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const blob = await canvasToBlob(canvas, "image/jpeg", JPEG_QUALITY)
+      const frameNumber = index + 1
+      frames.push({
+        frameNumber,
+        filename: `${timestampLabel}-Frame${String(frameNumber).padStart(
+          6,
+          "0"
+        )}.jpg`,
+        elapsedMs,
+        perfMs:
+          sessionStartPerfMs !== null
+            ? roundMs(sessionStartPerfMs + elapsedMs)
+            : elapsedMs,
+        blob,
+      })
+    }
+    return frames
+  } finally {
+    URL.revokeObjectURL(url)
+    video.removeAttribute("src")
+    video.load()
+  }
+}
+
+function waitForMediaEvent(
+  element: HTMLMediaElement,
+  eventName: keyof HTMLMediaElementEventMap
+) {
+  return new Promise<void>((resolve, reject) => {
+    const onEvent = () => {
+      cleanup()
+      resolve()
+    }
+    const onError = () => {
+      cleanup()
+      reject(new Error("Video frame extraction failed."))
+    }
+    const cleanup = () => {
+      element.removeEventListener(eventName, onEvent)
+      element.removeEventListener("error", onError)
+    }
+    element.addEventListener(eventName, onEvent, { once: true })
+    element.addEventListener("error", onError, { once: true })
+  })
+}
+
+async function seekVideo(video: HTMLVideoElement, timeSeconds: number) {
+  if (
+    Math.abs(video.currentTime - timeSeconds) < 0.001 &&
+    video.readyState >= 2
+  ) {
+    return
+  }
+  video.currentTime = timeSeconds
+  await waitForMediaEvent(video, "seeked")
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality: number
+) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob)
+        else reject(new Error("JPEG frame encoding failed."))
+      },
+      type,
+      quality
+    )
+  })
 }

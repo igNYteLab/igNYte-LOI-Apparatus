@@ -2,15 +2,22 @@ import type { FirmwareSample } from "@/lib/firmware"
 
 export type TestArchiveMeta = {
   name: string
+  runId?: string
+  psetId?: string
   startedAt: string
+  startedAtLocal?: string
   stoppedAt: string
+  stoppedAtLocal?: string
   durationSeconds: number
   sampleCount: number
+  frameExportFps?: number
+  frameCount?: number
   operator?: string
   sample?: string
   notes?: string
   videoFile: string | null
   videoError: string | null
+  framesDirectory?: string
 }
 
 export type TestArchiveEntry = {

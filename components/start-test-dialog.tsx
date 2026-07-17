@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { validateField, type FieldKind } from "@/lib/validation"
 
 const FIELDS = {
+  psetId: "psetId",
   netId: "netId",
   firstName: "name",
   middleName: "name",
@@ -34,6 +35,7 @@ const FIELDS = {
 type FormField = keyof typeof FIELDS
 
 const EMPTY_FORM: Record<FormField, string> = {
+  psetId: "",
   netId: "",
   firstName: "",
   middleName: "",
@@ -48,6 +50,7 @@ export function StartNewTestButton() {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [touched, setTouched] = useState<Record<FormField, boolean>>({
+    psetId: false,
     netId: false,
     firstName: false,
     middleName: false,
@@ -60,15 +63,14 @@ export function StartNewTestButton() {
     (Object.keys(FIELDS) as FormField[]).map((field) => [
       field,
       validateField(FIELDS[field], form[field]),
-    ]),
+    ])
   ) as Record<FormField, string | null>
 
   const isValid = Object.values(errors).every((error) => error === null)
 
   function update(field: FormField) {
-    return (
-      event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-    ) => setForm((prev) => ({ ...prev, [field]: event.target.value }))
+    return (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm((prev) => ({ ...prev, [field]: event.target.value }))
   }
 
   function markTouched(field: FormField) {
@@ -78,6 +80,7 @@ export function StartNewTestButton() {
   function resetState() {
     setForm(EMPTY_FORM)
     setTouched({
+      psetId: false,
       netId: false,
       firstName: false,
       middleName: false,
@@ -91,6 +94,7 @@ export function StartNewTestButton() {
     event.preventDefault()
     if (!isValid) return
     const record = addTest({
+      psetId: form.psetId.trim(),
       netId: form.netId.trim(),
       firstName: form.firstName.trim(),
       middleName: form.middleName.trim(),
@@ -100,8 +104,8 @@ export function StartNewTestButton() {
     })
     setOpen(false)
     resetState()
-    // Head to the data-acquisition / monitoring view for the new test.
-    router.push(`/dashboard/tests/${record.testId}`)
+    // Head to the data-acquisition / monitoring view for this parameter set.
+    router.push(`/dashboard/tests/${encodeURIComponent(record.psetId)}`)
   }
 
   function fieldError(field: FormField) {
@@ -119,19 +123,36 @@ export function StartNewTestButton() {
       <DialogTrigger asChild>
         <SidebarMenuButton className="min-w-8 bg-primary text-primary-foreground duration-200 ease-linear hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground">
           <IconCirclePlusFilled />
-          <span>Start New Test</span>
+          <span>New PSET</span>
         </SidebarMenuButton>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <form onSubmit={handleProceed} noValidate>
           <DialogHeader>
-            <DialogTitle>Start new test</DialogTitle>
+            <DialogTitle>Create parameter set</DialogTitle>
             <DialogDescription>
-              A unique Test ID and timestamp are generated automatically. All
-              fields below are required. Proceed to begin data acquisition.
+              Enter the PSET ID used to label the run configuration. The actual
+              test run is recorded after you press Run test.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="pset-id">PSET ID</Label>
+              <Input
+                id="pset-id"
+                value={form.psetId}
+                onChange={update("psetId")}
+                onBlur={markTouched("psetId")}
+                placeholder="e.g. LOI-A3"
+                aria-invalid={!!fieldError("psetId")}
+                autoFocus
+              />
+              {fieldError("psetId") ? (
+                <p className="text-xs text-destructive">
+                  {fieldError("psetId")}
+                </p>
+              ) : null}
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="net-id">Net ID</Label>
               <Input
@@ -141,10 +162,11 @@ export function StartNewTestButton() {
                 onBlur={markTouched("netId")}
                 placeholder="e.g. jd1234"
                 aria-invalid={!!fieldError("netId")}
-                autoFocus
               />
               {fieldError("netId") ? (
-                <p className="text-xs text-destructive">{fieldError("netId")}</p>
+                <p className="text-xs text-destructive">
+                  {fieldError("netId")}
+                </p>
               ) : null}
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -206,7 +228,9 @@ export function StartNewTestButton() {
                 aria-invalid={!!fieldError("email")}
               />
               {fieldError("email") ? (
-                <p className="text-xs text-destructive">{fieldError("email")}</p>
+                <p className="text-xs text-destructive">
+                  {fieldError("email")}
+                </p>
               ) : null}
             </div>
             <div className="grid gap-2">

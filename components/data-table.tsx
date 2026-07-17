@@ -48,9 +48,9 @@ import {
   IconLayoutColumns,
 } from "@tabler/icons-react"
 
-// A single test run recorded against the lab apparatus.
+// A parameter-set record used to launch actual test runs.
 export const schema = z.object({
-  testId: z.string(), // UUID
+  psetId: z.string(),
   performedAt: z.string(), // ISO date-time
   netId: z.string(),
   firstName: z.string(),
@@ -74,10 +74,10 @@ export function fullName(record: {
 
 const columns: ColumnDef<TestRecord>[] = [
   {
-    accessorKey: "testId",
-    header: "Test ID",
+    accessorKey: "psetId",
+    header: "PSET ID",
     cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.testId}</span>
+      <span className="font-mono text-xs">{row.original.psetId}</span>
     ),
   },
   {
@@ -154,7 +154,7 @@ export function DataTable({
   return (
     <div className="flex w-full min-w-0 flex-col gap-4 px-4 lg:px-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-medium">Test Records</h2>
+        <h2 className="text-base font-medium">Parameter Sets</h2>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm">
@@ -205,30 +205,32 @@ export function DataTable({
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => {
                 const openViewer = () =>
-                  router.push(`/dashboard/tests/${row.original.testId}`)
+                  router.push(
+                    `/dashboard/tests/${encodeURIComponent(row.original.psetId)}`
+                  )
                 return (
-                <TableRow
-                  key={row.id}
-                  role="link"
-                  tabIndex={0}
-                  onClick={openViewer}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault()
-                      openViewer()
-                    }
-                  }}
-                  className="cursor-pointer"
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
+                  <TableRow
+                    key={row.id}
+                    role="link"
+                    tabIndex={0}
+                    onClick={openViewer}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        openViewer()
+                      }
+                    }}
+                    className="cursor-pointer"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
                 )
               })
             ) : (
@@ -237,7 +239,7 @@ export function DataTable({
                   colSpan={columns.length}
                   className="h-24 text-center"
                 >
-                  No tests recorded yet.
+                  No parameter sets recorded yet.
                 </TableCell>
               </TableRow>
             )}
@@ -247,7 +249,7 @@ export function DataTable({
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} test(s)
+          {table.getFilteredRowModel().rows.length} parameter set(s)
         </div>
         <div className="flex items-center gap-6">
           <div className="hidden items-center gap-2 lg:flex">

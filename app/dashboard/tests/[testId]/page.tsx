@@ -15,9 +15,9 @@ export default function TestMonitorPage({
 }: {
   params: Promise<{ testId: string }>
 }) {
-  const { testId } = use(params)
+  const { testId: psetId } = use(params)
   const { getTest, hydrated } = useTests()
-  const test = getTest(testId)
+  const test = getTest(decodeURIComponent(psetId))
 
   if (!hydrated) {
     return <MonitorGridSkeleton />
@@ -29,7 +29,7 @@ export default function TestMonitorPage({
         <div>
           <h1 className="text-lg font-medium">Test not found</h1>
           <p className="text-sm text-muted-foreground">
-            No test matches this ID. It may have been cleared.
+            No parameter set matches this ID. It may have been cleared.
           </p>
         </div>
         <Button asChild variant="outline">
@@ -52,7 +52,7 @@ export default function TestMonitorPage({
           <div>
             <h1 className="text-lg font-medium">Test Monitoring</h1>
             <p className="font-mono text-xs text-muted-foreground">
-              {test.testId}
+              PSET {test.psetId}
             </p>
           </div>
         </div>
@@ -61,11 +61,10 @@ export default function TestMonitorPage({
       <MonitorGrid
         context={{
           operator: fullName(test),
-          sample: test.testId,
-          testId: test.testId,
+          sample: test.psetId,
+          psetId: test.psetId,
         }}
       />
-     
     </div>
   )
 }

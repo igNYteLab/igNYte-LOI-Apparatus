@@ -13,6 +13,7 @@ import type { TestRecord } from "@/components/data-table"
 const STORAGE_KEY = "ignyte.tests"
 
 type NewTestInput = {
+  psetId: string
   netId: string
   firstName: string
   middleName: string
@@ -25,7 +26,7 @@ type TestsContextValue = {
   tests: TestRecord[]
   hydrated: boolean
   addTest: (input: NewTestInput) => TestRecord
-  getTest: (testId: string) => TestRecord | undefined
+  getTest: (psetId: string) => TestRecord | undefined
 }
 
 const TestsContext = createContext<TestsContextValue | null>(null)
@@ -64,7 +65,7 @@ export function TestsProvider({ children }: { children: React.ReactNode }) {
 
   const addTest = useCallback((input: NewTestInput) => {
     const record: TestRecord = {
-      testId: crypto.randomUUID(),
+      psetId: input.psetId,
       performedAt: new Date().toISOString(),
       netId: input.netId,
       firstName: input.firstName,
@@ -73,13 +74,16 @@ export function TestsProvider({ children }: { children: React.ReactNode }) {
       email: input.email,
       remarks: input.remarks,
     }
-    setTests((prev) => [record, ...prev])
+    setTests((prev) => [
+      record,
+      ...prev.filter((test) => test.psetId !== record.psetId),
+    ])
     return record
   }, [])
 
   const getTest = useCallback(
-    (testId: string) => tests.find((test) => test.testId === testId),
-    [tests],
+    (psetId: string) => tests.find((test) => test.psetId === psetId),
+    [tests]
   )
 
   return (

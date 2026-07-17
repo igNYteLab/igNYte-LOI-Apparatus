@@ -39,8 +39,8 @@ CREATE TABLE sample (
 -- -----------------------------------------------------------------------------
 CREATE TABLE sensor_channel (
     id    SMALLINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    key   TEXT NOT NULL UNIQUE,               -- tc1..tc4, sht45, bme688, d6f_v03a1, flow1, flow2
-    kind  TEXT NOT NULL,                      -- thermocouple | environment | analog | flow_controller
+    key   TEXT NOT NULL UNIQUE,               -- tc1..tc4, sht45, bme688, o2, d6f_v03a1, flow1, flow2
+    kind  TEXT NOT NULL,                      -- thermocouple | environment | oxygen | analog | flow_controller
     unit  TEXT NOT NULL                       -- degC | %RH | hPa | kOhm | m/s | V | %
 );
 
@@ -51,7 +51,8 @@ CREATE TABLE sensor_channel (
 CREATE TABLE test_run (
     id                   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     sample_id            BIGINT NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
-    external_test_id     TEXT UNIQUE,          -- the app's testId (UUID)
+    external_test_id     TEXT UNIQUE,          -- saved run artifact ID: YYYYMMDD-HHMMSS-PSETID
+    pset_id              TEXT,                 -- user-entered parameter-set ID
     started_at           TIMESTAMPTZ NOT NULL,
     stopped_at           TIMESTAMPTZ,
     duration_seconds     INTEGER CHECK (duration_seconds IS NULL OR duration_seconds >= 0),
@@ -93,6 +94,9 @@ CREATE TABLE sensor_reading (
     pressure_hpa    DOUBLE PRECISION,
     gas_kohm        DOUBLE PRECISION,
 
+    -- oxygen (o2)
+    o2_vol_pct      DOUBLE PRECISION,
+
     -- analog flow velocity (d6f_v03a1)
     raw_adc         INTEGER,
     voltage_v       DOUBLE PRECISION,
@@ -117,6 +121,7 @@ INSERT INTO sensor_channel (key, kind, unit) VALUES
     ('tc4',       'thermocouple',    'degC'),
     ('sht45',     'environment',     '%RH'),
     ('bme688',    'environment',     'hPa'),
+    ('o2',        'oxygen',          '%'),
     ('d6f_v03a1', 'analog',          'm/s'),
     ('flow1',     'flow_controller', '%'),
     ('flow2',     'flow_controller', '%');

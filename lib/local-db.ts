@@ -32,6 +32,7 @@ export type TestRun = {
   id: number
   sampleId: number
   externalTestId: string | null
+  psetId: string | null
   startedAt: string
   stoppedAt: string | null
   durationSeconds: number | null
@@ -47,8 +48,8 @@ export type TestRun = {
 
 export type SensorChannel = {
   id: number
-  key: string // tc1..tc4, sht45, bme688, d6f_v03a1, flow1, flow2
-  kind: string // thermocouple | environment | analog | flow_controller
+  key: string // tc1..tc4, sht45, bme688, o2, d6f_v03a1, flow1, flow2
+  kind: string // thermocouple | environment | oxygen | analog | flow_controller
   unit: string // degC | %RH | hPa | kOhm | m/s | %
 }
 
@@ -67,6 +68,8 @@ export type SensorReading = {
   rhPct: number | null
   pressureHpa: number | null
   gasKohm: number | null
+  // oxygen
+  o2VolPct: number | null
   // analog velocity
   rawAdc: number | null
   voltageV: number | null
@@ -136,6 +139,7 @@ const DEFAULT_CHANNELS: Omit<SensorChannel, "id">[] = [
   { key: "tc4", kind: "thermocouple", unit: "degC" },
   { key: "sht45", kind: "environment", unit: "%RH" },
   { key: "bme688", kind: "environment", unit: "hPa" },
+  { key: "o2", kind: "oxygen", unit: "%" },
   { key: "d6f_v03a1", kind: "analog", unit: "m/s" },
   { key: "flow1", kind: "flow_controller", unit: "%" },
   { key: "flow2", kind: "flow_controller", unit: "%" },
@@ -191,6 +195,7 @@ export function createTestRun(input: NewTestRun): TestRun {
     id: nextId("testRun"),
     sampleId: input.sampleId,
     externalTestId: input.externalTestId ?? null,
+    psetId: input.psetId ?? null,
     startedAt: input.startedAt,
     stoppedAt: input.stoppedAt ?? null,
     durationSeconds: input.durationSeconds ?? null,
@@ -218,7 +223,7 @@ export function getTestRun(id: number): TestRun | undefined {
 
 export function updateTestRun(
   id: number,
-  patch: Partial<Omit<TestRun, "id">>,
+  patch: Partial<Omit<TestRun, "id">>
 ): TestRun | null {
   const runs = listTestRuns()
   const index = runs.findIndex((r) => r.id === id)
@@ -234,7 +239,7 @@ export function updateTestRun(
 /** Map a raw firmware sample onto a sensor_reading row for the given run. */
 function toReading(
   testRunId: number,
-  sample: FirmwareSample,
+  sample: FirmwareSample
 ): SensorReading | null {
   const channelId = channelIdForKey(sample.sensor)
   if (channelId == null) return null
@@ -251,6 +256,7 @@ function toReading(
     rhPct: sample.rh_pct ?? null,
     pressureHpa: sample.pressure_hpa ?? null,
     gasKohm: sample.gas_kohm ?? null,
+    o2VolPct: sample.o2_vol_pct ?? null,
     rawAdc: sample.raw_adc ?? null,
     voltageV: sample.voltage_v ?? null,
     velocityMs: sample.velocity_m_s ?? null,
@@ -262,7 +268,7 @@ function toReading(
 /** Append firmware samples to a run's reading series. Returns rows written. */
 export function addReadings(
   testRunId: number,
-  samples: FirmwareSample[],
+  samples: FirmwareSample[]
 ): number {
   if (!samples.length) return 0
   const rows = samples
@@ -281,7 +287,7 @@ export function getReadings(testRunId: number): SensorReading[] {
 export function deleteTestRun(testRunId: number): void {
   write(
     KEYS.runs,
-    listTestRuns().filter((r) => r.id !== testRunId),
+    listTestRuns().filter((r) => r.id !== testRunId)
   )
   if (hasStorage()) window.localStorage.removeItem(KEYS.readings(testRunId))
   if (hasStorage()) window.dispatchEvent(new Event(LOCAL_DB_CHANGED_EVENT))
@@ -314,9 +320,7 @@ export function recordCompletedTest(input: RecordTestInput): {
   const readingCount = addReadings(run.id, input.samples)
 
   // Backfill ambient conditions from the most recent environment sample.
-  const env = [...input.samples]
-    .reverse()
-    .find((s) => s.kind === "environment")
+  const env = [...input.samples].reverse().find((s) => s.kind === "environment")
   const updated = updateTestRun(run.id, {
     sampleCount: readingCount,
     ambientTempC: env?.temp_c ?? run.ambientTempC,
