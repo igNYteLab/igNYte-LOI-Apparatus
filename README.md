@@ -3,7 +3,7 @@
 Web app for the **IgNYte-FPA** Limiting Oxygen Index (LOI) apparatus — a custom
 ESP32-P4 DAQ rig for running ASTM D2863 oxygen-index tests. The app connects to
 the board over **Web Serial**, streams live sensor telemetry, records sessions,
-and sends motor / flow / sensor commands.
+and sends motor / flow / sensor commands..
 
 ## Features
 
