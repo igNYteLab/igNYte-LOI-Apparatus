@@ -173,6 +173,16 @@ label {
   font-size: 0.82rem;
 }
 
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.inline-check input {
+  width: auto;
+}
+
 .label-row {
   display: flex;
   align-items: center;

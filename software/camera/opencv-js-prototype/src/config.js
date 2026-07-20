@@ -12,20 +12,20 @@ export const DEFAULT_CONFIG = {
     brightHsvLow: {
       h: 0,
       s: 0,
-      v: 170,
+      v: 133,
     },
     brightHsvHigh: {
-      h: 60,
-      s: 90,
+      h: 13,
+      s: 255,
       v: 255,
     },
     coloredHsvLow: {
       h: 0,
-      s: 40,
-      v: 80,
+      s: 195,
+      v: 19,
     },
     coloredHsvHigh: {
-      h: 45,
+      h: 8,
       s: 255,
       v: 255,
     },

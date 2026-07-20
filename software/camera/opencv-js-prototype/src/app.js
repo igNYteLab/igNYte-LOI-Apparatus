@@ -20,6 +20,9 @@ const els = {
   refreshCamerasButton: document.getElementById("refreshCamerasButton"),
   startButton: document.getElementById("startButton"),
   stopButton: document.getElementById("stopButton"),
+  videoFileInput: document.getElementById("videoFileInput"),
+  loopVideoInput: document.getElementById("loopVideoInput"),
+  toggleVideoPlaybackButton: document.getElementById("toggleVideoPlaybackButton"),
   widthInput: document.getElementById("widthInput"),
   heightInput: document.getElementById("heightInput"),
   fpsInput: document.getElementById("fpsInput"),
@@ -93,6 +96,8 @@ const state = {
   cvReady: false,
   stream: null,
   activeTrack: null,
+  sourceType: null,
+  videoObjectUrl: null,
   frameId: 0,
   processing: false,
   lastProcessMs: 0,
@@ -132,6 +137,12 @@ function bindEventHandlers() {
   els.refreshCamerasButton.addEventListener("click", () => void refreshCameras())
   els.startButton.addEventListener("click", () => void startCamera())
   els.stopButton.addEventListener("click", stopCamera)
+  els.videoFileInput.addEventListener("change", () => void startUploadedVideo())
+  els.loopVideoInput.addEventListener("change", updateUploadedVideoLoop)
+  els.toggleVideoPlaybackButton.addEventListener("click", () =>
+    void toggleUploadedVideoPlayback(),
+  )
+  els.video.addEventListener("ended", handleUploadedVideoEnded)
   els.applyCameraConstraintsButton.addEventListener("click", () =>
     void applyCameraConstraints(),
   )
@@ -358,7 +369,10 @@ async function startCamera() {
       audio: false,
     })
     state.activeTrack = state.stream.getVideoTracks()[0] ?? null
+    state.sourceType = "camera"
     els.video.srcObject = state.stream
+    els.video.removeAttribute("src")
+    els.video.loop = false
     await els.video.play()
     await refreshCameras()
     resizeCanvases()
@@ -378,7 +392,96 @@ async function startCamera() {
   }
 }
 
-function stopCamera() {
+async function startUploadedVideo() {
+  if (!state.cvReady) return
+
+  const file = els.videoFileInput.files?.[0]
+  if (!file) return
+
+  stopCamera({ preserveSelectedFile: true })
+  state.videoObjectUrl = URL.createObjectURL(file)
+  state.sourceType = "file"
+  els.video.srcObject = null
+  els.video.src = state.videoObjectUrl
+  els.video.loop = els.loopVideoInput.checked
+  els.video.currentTime = 0
+
+  try {
+    await waitForVideoMetadata()
+    await els.video.play()
+    resizeCanvases()
+    updateCameraOutput()
+    els.startButton.disabled = false
+    els.stopButton.disabled = false
+    els.applyCameraConstraintsButton.disabled = true
+    els.toggleVideoPlaybackButton.disabled = false
+    els.toggleVideoPlaybackButton.textContent = "Pause Uploaded Video"
+    setStatus(els.cameraStatus, "Uploaded video running", "good")
+    resetControllerState(0, 0)
+    state.processing = true
+    state.lastProcessMs = 0
+    state.animationId = requestAnimationFrame(processLoop)
+  } catch (err) {
+    setStatus(els.cameraStatus, "Video failed", "bad")
+    els.cameraOutput.textContent =
+      err instanceof Error ? err.message : "Unable to load uploaded video."
+    stopCamera({ preserveSelectedFile: true })
+  }
+}
+
+function waitForVideoMetadata() {
+  if (els.video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    return Promise.resolve()
+  }
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      els.video.removeEventListener("loadedmetadata", handleLoaded)
+      els.video.removeEventListener("error", handleError)
+    }
+    const handleLoaded = () => {
+      cleanup()
+      resolve()
+    }
+    const handleError = () => {
+      cleanup()
+      reject(new Error("Browser could not load the selected video file."))
+    }
+    els.video.addEventListener("loadedmetadata", handleLoaded, { once: true })
+    els.video.addEventListener("error", handleError, { once: true })
+  })
+}
+
+function updateUploadedVideoLoop() {
+  if (state.sourceType === "file") {
+    els.video.loop = els.loopVideoInput.checked
+  }
+}
+
+function handleUploadedVideoEnded() {
+  if (state.sourceType !== "file") return
+  els.toggleVideoPlaybackButton.textContent = "Replay Uploaded Video"
+  setStatus(els.cameraStatus, "Uploaded video ended", "muted")
+}
+
+async function toggleUploadedVideoPlayback() {
+  if (state.sourceType !== "file") return
+
+  if (els.video.paused) {
+    if (els.video.ended) {
+      els.video.currentTime = 0
+    }
+    await els.video.play()
+    els.toggleVideoPlaybackButton.textContent = "Pause Uploaded Video"
+    setStatus(els.cameraStatus, "Uploaded video running", "good")
+  } else {
+    els.video.pause()
+    els.toggleVideoPlaybackButton.textContent = "Resume Uploaded Video"
+    setStatus(els.cameraStatus, "Uploaded video paused", "muted")
+  }
+}
+
+function stopCamera(options = {}) {
   if (state.autoControlEnabled) {
     void stopAutoControl()
   }
@@ -391,12 +494,25 @@ function stopCamera() {
   if (state.stream) {
     state.stream.getTracks().forEach((track) => track.stop())
   }
+  els.video.pause()
   state.stream = null
   state.activeTrack = null
+  state.sourceType = null
   els.video.srcObject = null
+  els.video.removeAttribute("src")
+  els.video.load()
+  if (state.videoObjectUrl) {
+    URL.revokeObjectURL(state.videoObjectUrl)
+    state.videoObjectUrl = null
+  }
+  if (!options.preserveSelectedFile) {
+    els.videoFileInput.value = ""
+  }
   els.startButton.disabled = false
   els.stopButton.disabled = true
   els.applyCameraConstraintsButton.disabled = true
+  els.toggleVideoPlaybackButton.disabled = true
+  els.toggleVideoPlaybackButton.textContent = "Pause Uploaded Video"
   resetControllerState(0, 0)
   setStatus(els.cameraStatus, "Camera stopped", "muted")
 }
@@ -805,9 +921,31 @@ async function applyCameraConstraints() {
 }
 
 function updateCameraOutput() {
-  els.cameraOutput.textContent = state.activeTrack
-    ? cameraReport(state.activeTrack)
-    : "Camera not started."
+  if (state.activeTrack) {
+    els.cameraOutput.textContent = cameraReport(state.activeTrack)
+    return
+  }
+
+  if (state.sourceType === "file") {
+    els.cameraOutput.textContent = JSON.stringify(
+      {
+        source: "uploaded_video",
+        name: els.videoFileInput.files?.[0]?.name ?? null,
+        type: els.videoFileInput.files?.[0]?.type ?? null,
+        width: els.video.videoWidth,
+        height: els.video.videoHeight,
+        duration_s: Number.isFinite(els.video.duration)
+          ? Number(els.video.duration.toFixed(3))
+          : null,
+        loop: els.video.loop,
+      },
+      null,
+      2,
+    )
+    return
+  }
+
+  els.cameraOutput.textContent = "Camera not started."
 }
 
 function cameraReport(track) {

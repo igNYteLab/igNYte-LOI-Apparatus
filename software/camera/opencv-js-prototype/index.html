@@ -42,6 +42,17 @@ Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
             <button id="stopButton" type="button" disabled>Stop Camera</button>
           </div>
           <label>
+            Uploaded video file
+            <input id="videoFileInput" type="file" accept="video/webm,video/*" />
+          </label>
+          <label class="inline-check">
+            <input id="loopVideoInput" type="checkbox" checked />
+            Loop uploaded video
+          </label>
+          <button id="toggleVideoPlaybackButton" type="button" disabled>
+            Pause Uploaded Video
+          </button>
+          <label>
             Requested width
             <input id="widthInput" type="number" min="160" step="1" />
           </label>

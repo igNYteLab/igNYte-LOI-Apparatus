@@ -174,6 +174,26 @@ software/camera/opencv-js-prototype/
 
 It is used to test flame segmentation, bottom-of-flame tracking, P/PI/feed-forward control behavior, and serial motor command generation before relying on the production web app.
 
+Current flame setup values that worked well in testing:
+
+```js
+brightHsvLow: { h: 0, s: 0, v: 133 }
+brightHsvHigh: { h: 13, s: 255, v: 255 }
+coloredHsvLow: { h: 0, s: 196, v: 19 }
+coloredHsvHigh: { h: 8, s: 255, v: 255 }
+minAreaPx: 50
+kernelSizePx: 2
+exposureTime: 35
+```
+
+Current overlay:
+
+![Current flame segmentation overlay](docs/overlay.png)
+
+Current binary mask:
+
+![Current flame segmentation binary mask](docs/binarymask.png)
+
 Start here:
 
 - [software/camera/README.md](software/camera/README.md)

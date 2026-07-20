@@ -302,12 +302,13 @@ Tracking settings:
 
 | Setting | Value |
 | --- | --- |
-| Bright HSV low | |
-| Bright HSV high | |
-| Colored HSV low | |
-| Colored HSV high | |
-| Minimum area px | |
-| Morph kernel px | |
+| Bright HSV low | `{ h: 0, s: 0, v: 133 }` |
+| Bright HSV high | `{ h: 13, s: 255, v: 255 }` |
+| Colored HSV low | `{ h: 0, s: 196, v: 19 }` |
+| Colored HSV high | `{ h: 8, s: 255, v: 255 }` |
+| Minimum area px | `50` |
+| Morph kernel px | `2` |
+| Exposure time | `35` |
 | Setpoint row / norm | |
 | Controller mode | P / PI |
 | Kp | |
@@ -316,6 +317,14 @@ Tracking settings:
 | Feedforward gain | |
 | mm per px | |
 | Max velocity mm/s | |
+
+Current flame segmentation overlay:
+
+![Current flame segmentation overlay](overlay.png)
+
+Current binary mask:
+
+![Current flame segmentation binary mask](binarymask.png)
 
 Validation checks:
 

@@ -23,6 +23,7 @@ This is intentionally separate from the production `ignyte` web app for now. The
 - Current default detector values are based on printed targets and recorded flame videos, not final apparatus validation through glass.
 - Real flame testing will still require threshold tuning because reflections, exposure changes, glass glare, and flame brightness vary.
 - The prototype uses browser webcam access through `getUserMedia`.
+- The prototype can also process uploaded local video files, including `.webm`, through the same hidden video element used for webcam frames.
 - The prototype loads OpenCV.js from a CDN first for quick testing.
 - The prototype is browser-only. It does not expose WebSocket, HTTP, MJPEG, or any API yet.
 - The prototype can connect to the ESP32-P4 firmware through browser Web Serial.
@@ -36,6 +37,7 @@ This is intentionally separate from the production `ignyte` web app for now. The
 ## What It Shows
 
 - Live webcam frame with overlay.
+- Uploaded video playback with loop and pause/resume controls for offline HSV tuning.
 - Binary combined mask preview.
 - Separate slider groups for the bright HSV mask and colored HSV mask.
 - Selected contour outline.
@@ -66,7 +68,7 @@ http://localhost:8080
 
 ## First Test Target
 
-Use a printed orange/yellow flame image on a simple background first. Recorded flame video on a screen is also useful after the printed target works.
+Use a printed orange/yellow flame image on a simple background first. After that, upload a recorded `.webm` or other browser-supported video file directly in the Camera panel so HSV thresholds can be tuned without repeatedly using a live flame.
 
 Good first checks:
 
@@ -78,6 +80,20 @@ Good first checks:
 - `error_y_px` should be near zero when the bottom dot is on the setpoint line.
 - `tracking` should become `false` when the target leaves the frame.
 - The recommendation should become `null` inside the deadband or when tracking is lost.
+
+## Uploaded Video Tuning
+
+Use the `Uploaded video file` control in the Camera panel to load a local recording. The prototype will stop the live camera, feed the selected video into the same OpenCV processing loop, and keep the overlay/mask/JSON outputs working with the existing sliders.
+
+Useful workflow:
+
+1. Record a representative flame test as `.webm`.
+2. Open the prototype from `localhost`.
+3. Upload the video file.
+4. Keep `Loop uploaded video` enabled while tuning HSV values.
+5. Pause on difficult frames to adjust thresholds around reflections, glare, or low-brightness flame edges.
+
+Uploaded video is for detector/controller tuning only. Firmware serial auto-control should remain off while using prerecorded footage because the video is not synchronized to the real stage.
 
 ## Detector Logic
 
@@ -105,6 +121,28 @@ brightHsvHigh: { h: 60, s: 90, v: 255 }
 coloredHsvLow: { h: 0, s: 40, v: 80 }
 coloredHsvHigh: { h: 45, s: 255, v: 255 }
 ```
+
+## Current Tuned Flame Setup
+
+The following values were found to work very well for the current flame setup and were ported to the IgNYte web app vision defaults:
+
+```js
+brightHsvLow: { h: 0, s: 0, v: 133 }
+brightHsvHigh: { h: 13, s: 255, v: 255 }
+coloredHsvLow: { h: 0, s: 196, v: 19 }
+coloredHsvHigh: { h: 8, s: 255, v: 255 }
+minAreaPx: 50
+kernelSizePx: 2
+exposureTime: 35
+```
+
+Current overlay:
+
+![Current flame segmentation overlay](../../../docs/overlay.png)
+
+Current binary mask:
+
+![Current flame segmentation binary mask](../../../docs/binarymask.png)
 
 OpenCV.js is loaded in `index.html` from:
 
