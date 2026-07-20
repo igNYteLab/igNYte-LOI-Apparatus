@@ -83,9 +83,14 @@ SemaphoreHandle_t spiBusMutex = nullptr;
 uint32_t lastVelocityCommandMs = 0;
 bool velocityWatchdogArmed = false;
 
+constexpr size_t kTelemetryQueueDepth = 32;
 constexpr size_t kTcSensorIndices[] = {0, 1, 2, 3};
 constexpr size_t kFastI2cSensorIndices[] = {4, 6};
 constexpr size_t kBmeSensorIndex = 5;
+
+void telemetryTask(void*) {
+  telemetry.runTask();
+}
 
 // function for publishing status messages to telemetry with a consistent format
 void publishStatus(
@@ -104,7 +109,7 @@ void publishStatus(
   if (severity != nullptr) {
     doc["severity"] = severity;
   }
-  telemetry.write(doc);
+  telemetry.enqueue(doc);
 }
 
 // helper function to find a sensor by name; returns nullptr if not found
@@ -132,7 +137,7 @@ void publishSensorStatus() {
     item["rate_hz"] = sensors[i]->rateHz();
   }
 
-  telemetry.write(doc);
+  telemetry.enqueue(doc);
 }
 
 void publishI2cScan() {
@@ -159,7 +164,7 @@ void publishI2cScan() {
   }
 
   doc["count"] = count;
-  telemetry.write(doc);
+  telemetry.enqueue(doc);
 }
 
 // helper function to queue a motor command; returns true if successful, false if the queue is full or missing
@@ -230,7 +235,7 @@ void publishMotorState(const char* status) {
   doc["max_limit_mm"] = motor.maxLimitMm();
   doc["position_steps"] = motor.positionSteps();
   doc["position_mm"] = motor.positionMm();
-  telemetry.write(doc);
+  telemetry.enqueue(doc);
 }
 
 void publishDriverStatus() {
@@ -248,7 +253,7 @@ void publishDriverStatus() {
   doc["drv_status"] = diagnostics.drv_status;
   doc["rms_current_ma"] = diagnostics.rms_current_ma;
   doc["microsteps"] = diagnostics.microsteps;
-  telemetry.write(doc);
+  telemetry.enqueue(doc);
 }
 
 void publishStallStatus() {
@@ -278,7 +283,7 @@ void publishStallStatus() {
   doc["velocity_mode"] = diagnostics.velocity_mode;
   doc["speed_mm_s"] = diagnostics.speed_mm_s;
   doc["stall_test_travel_mm"] = diagnostics.stall_test_travel_mm;
-  telemetry.write(doc);
+  telemetry.enqueue(doc);
 }
 
 void publishMotorMotionEvent(MotorMotionEvent event) {
@@ -324,7 +329,7 @@ void publishMotorMotionEvent(MotorMotionEvent event) {
   doc["limits_valid"] = motor.limitsValid();
   doc["min_limit_mm"] = motor.minLimitMm();
   doc["max_limit_mm"] = motor.maxLimitMm();
-  telemetry.write(doc);
+  telemetry.enqueue(doc);
 }
 
 // helper function to apply a motor command immediately; used by the motor task
@@ -500,7 +505,7 @@ bool pollSensor(size_t sensorIndex, SemaphoreHandle_t busMutex = nullptr) {
   }
 
   doc["ok"] = ok;
-  telemetry.write(doc);
+  telemetry.enqueue(doc);
   sensor->markRead(nowUs());
   return true;
 }
@@ -550,7 +555,7 @@ void bmeSensorTask(void*) {
           doc["sensor"] = bme688.name();
           doc["t_us"] = timestampUs;
           doc["ok"] = false;
-          telemetry.write(doc);
+          telemetry.enqueue(doc);
           bme688.markRead(nowUs());
         }
       }
@@ -567,7 +572,7 @@ void bmeSensorTask(void*) {
         }
 
         doc["ok"] = ok;
-        telemetry.write(doc);
+        telemetry.enqueue(doc);
         bme688.markRead(nowUs());
       }
     }
@@ -588,7 +593,7 @@ void flowTask(void*) {
       doc["raw"] = raw;
       doc["pct"] = (static_cast<float>(raw) / 32000.0f) * 100.0f;
       doc["ok"] = true;
-      telemetry.write(doc);
+      telemetry.enqueue(doc);
     }
 
     doc.clear();
@@ -600,7 +605,7 @@ void flowTask(void*) {
       doc["raw"] = raw;
       doc["pct"] = (static_cast<float>(raw) / 32000.0f) * 100.0f;
       doc["ok"] = true;
-      telemetry.write(doc);
+      telemetry.enqueue(doc);
     }
 
     vTaskDelay(pdMS_TO_TICKS(200));
@@ -680,9 +685,13 @@ void setup() {
   Serial.begin(Config::kUsbBaud);
   delay(1000);
 
-  telemetry.begin();
+  const bool telemetryOk = telemetry.begin(kTelemetryQueueDepth);
+  if (telemetryOk) {
+    xTaskCreate(telemetryTask, "telemetry", 4096, nullptr, 1, nullptr);
+  }
   publishStatus("boot", "starting");
   bool bootWarnings = false;
+  bootWarnings = bootWarnings || !telemetryOk;
 
   motorCommandQueue = xQueueCreate(8, sizeof(MotorCommand));
   motorVelocityQueue = xQueueCreate(1, sizeof(MotorVelocityCommand));

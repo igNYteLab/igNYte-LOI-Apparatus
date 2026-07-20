@@ -4,19 +4,37 @@
 
 #include "Telemetry.h"
 
-void Telemetry::begin() {
-  mutex_ = xSemaphoreCreateMutex();
+bool Telemetry::begin(size_t queueDepth) {
+  queue_ = xQueueCreate(queueDepth, sizeof(Line));
+  return queue_ != nullptr;
 }
 
-void Telemetry::write(JsonDocument& doc) {
-  if (mutex_ != nullptr) {
-    xSemaphoreTake(mutex_, portMAX_DELAY);
+bool Telemetry::enqueue(JsonDocument& doc) {
+  if (queue_ == nullptr) {
+    return false;
   }
 
-  serializeJson(doc, Serial);
-  Serial.println();
+  Line line{};
+  const size_t required = measureJson(doc);
+  if (required == 0 || required >= sizeof(line.text)) {
+    ++oversized_;
+    return false;
+  }
 
-  if (mutex_ != nullptr) {
-    xSemaphoreGive(mutex_);
+  serializeJson(doc, line.text, sizeof(line.text));
+  if (xQueueSend(queue_, &line, 0) != pdTRUE) {
+    ++dropped_;
+    return false;
+  }
+
+  return true;
+}
+
+void Telemetry::runTask() {
+  Line line;
+  for (;;) {
+    if (xQueueReceive(queue_, &line, portMAX_DELAY) == pdTRUE) {
+      Serial.println(line.text);
+    }
   }
 }
