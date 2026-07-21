@@ -6,7 +6,7 @@ Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
 
 # Change Log
 
-Use this file for confirmed problems/fixes and meaningful design changes. Keep suspected or unverified risks in `docs/possible-issues.md`.
+Use this file for confirmed problems/fixes and meaningful design changes. Keep remaining handoff work in `docs/futurework.md` and confirmed board revision issues in `hardware/errata.md`.
 
 When adding an entry, use this format:
 
@@ -69,6 +69,41 @@ Verification:
 
 - Searched the repo for `overlay.png` and `binarymask.png` references.
 - Verified no stale `docs/overlay.png`, `docs/binarymask.png`, or local `overlay.png` references remain.
+
+## 2026-07-21 - Consolidate Possible Issues Into Handoff Docs
+
+What changed:
+
+- Moved remaining future integration work into `docs/futurework.md`.
+- Moved remaining hardware revision risk around Flow 2 / strapping pins into `hardware/errata.md`.
+- Added I2C bus-level failure guidance to `docs/operator-demo-flow.md`.
+- Removed active README and docs-index references to `docs/possible-issues.md`.
+
+Why:
+
+The old possible-issues register mixed resolved bring-up notes, future work, hardware errata, and validation checks. Splitting the remaining useful content into the docs where maintainers will look reduces repetition and doc drift.
+
+Verification:
+
+- Reviewed each `docs/possible-issues.md` section and migrated only unresolved, actionable items.
+- Searched repository references to ensure no active docs still point users to `docs/possible-issues.md`.
+
+## 2026-07-21 - Move Firmware Architecture Notes
+
+What changed:
+
+- Added `firmware/p4-sensor-hub-arduino/README.md`.
+- Moved the unique firmware architecture, task model, pin summary, sensor sampling model, motor architecture, Bronkhorst assumptions, and native-test notes out of the old project context document.
+- Updated root and docs README navigation to point to the firmware README for firmware-specific design context.
+
+Why:
+
+`docs/project-context.md` had become a broad working document with stale scaffold history and repeated information. The useful firmware-specific material belongs beside the firmware source before the old context document can be deleted.
+
+Verification:
+
+- Compared `docs/project-context.md` against the new firmware README and retained only current, actionable architecture details.
+- Left `docs/project-context.md` in place pending explicit deletion approval.
 
 ## 2026-07-16 - Document Thermocouple Channel Order
 

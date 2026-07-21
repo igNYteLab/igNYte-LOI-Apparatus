@@ -60,6 +60,7 @@ Expected behavior:
 - Sensor telemetry appears as newline-delimited JSON.
 - The web app displays sensor values without dropping the serial connection.
 - Thermocouples remain mapped in the documented order.
+- If all I2C devices fail together, suspect an I2C bus-level issue first, such as a disconnected device, bad cable, or device pulling SDA/SCL away from their normal idle level.
 
 ## Motor Driver Check
 
@@ -199,6 +200,7 @@ Stop the demo and debug before continuing if any of these occur:
 - `motor.driver_status` reports `connection_ok:false`.
 - Calibration does not complete.
 - `motor.status` does not report `limits_valid:true` after calibration.
+- Multiple I2C sensors disappear at the same time.
 - The stage moves opposite the expected direction.
 - The stage skips, binds, stalls, or repeatedly gets stuck at the same physical spot.
 - The OpenCV mask locks onto reflections instead of the flame.

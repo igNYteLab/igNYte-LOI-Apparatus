@@ -396,7 +396,6 @@ Fill this in at the end of validation.
 | TMC2209 UART hardware bodge | | |
 | Endstop connector revision | | |
 | ESP-IDF skeleton / VS Code setting confusion | | |
-| Host logger completeness | | |
 
 ## Final Result
 
@@ -404,7 +403,7 @@ Overall status:
 
 - [ ] Ready for demo.
 - [ ] Ready for controlled lab use.
-- [ ] Partially validated; see open risks.
+- [ ] Partially validated; see `docs/futurework.md`.
 - [ ] Not ready; blocking issue exists.
 
 Summary:

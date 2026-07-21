@@ -87,3 +87,23 @@ Next hardware revision:
 - Verify both header pitch and row-to-row spacing.
 - Print a 1:1 footprint check before ordering the next PCB.
 - If possible, test-fit the module footprint with headers before committing the next board revision.
+
+## Flow 2 Uses UART0 / Strapping-Pin GPIOs
+
+Current issue:
+
+- Flow 2 is routed to GPIO37/GPIO38.
+- Those pins overlap with ESP32-P4 UART0/download/logging concerns.
+- GPIO34, GPIO35, GPIO36, GPIO37, and GPIO38 are also strapping-pin area risks that should be reviewed carefully during the next board revision.
+
+Why it matters:
+
+- A connected flow controller could interfere with boot, flashing, or serial logging if it drives those pins at the wrong time.
+- Flow-controller hardware was not available during the main bring-up, so this path remains unvalidated with the real controllers.
+- MAX31856 chip-select pullups reduce the risk on the SPI CS pins, but Flow 2 on GPIO37/GPIO38 is still the higher-risk case.
+
+Next hardware revision:
+
+- Avoid routing external serial devices to boot/download/logging pins where possible.
+- If GPIO37/GPIO38 must remain, validate boot and flashing with the real Flow 2 controller connected and disconnected.
+- Keep pullups/pulldowns and connector behavior explicit in the schematic so reset-state pin levels are predictable.

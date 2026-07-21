@@ -20,6 +20,7 @@ This repository focuses on the apparatus-side system: sensor acquisition, motori
 IgNYte-FPA/
   firmware/
     p4-sensor-hub-arduino/        Active ESP32-P4 PlatformIO firmware
+      README.md                   Firmware architecture, task model, and build notes
     p4-sensor-hub/                Older ESP-IDF skeleton kept for reference
   hardware/
     motherV1/                     KiCad board files and JLCPCB manufacturing exports
@@ -31,10 +32,9 @@ IgNYte-FPA/
   tools/
     tmc_stall_sweep.py            Motor/StallGuard tuning helper script
   docs/
-    project-context.md            Current architecture and design context
     firmware-serial-protocol.md   JSONL command, telemetry, and quick-reference protocol
     final-validation.md           Final validation checklist and observed results
-    possible-issues.md            Open risks and follow-up items
+    futurework.md                 Remaining integration work and handoff decisions
     change-log.md                 Confirmed fixes and design changes
   .github/workflows/
     firmware-opencv.yml           Firmware and OpenCV prototype CI checks
@@ -251,10 +251,10 @@ Documentation starts at:
 
 Most useful documents:
 
-- [docs/project-context.md](docs/project-context.md): architecture, firmware layout, pin maps, assumptions, and current design context
+- [firmware/p4-sensor-hub-arduino/README.md](firmware/p4-sensor-hub-arduino/README.md): firmware architecture, task model, pin summary, and motor/sensor design
 - [docs/firmware-serial-protocol.md](docs/firmware-serial-protocol.md): JSON command and telemetry protocol
 - [docs/final-validation.md](docs/final-validation.md): final validation checklist and observed validation results
-- [docs/possible-issues.md](docs/possible-issues.md): open risks and unresolved follow-up items
+- [docs/futurework.md](docs/futurework.md): remaining integration work and major handoff decisions
 - [docs/change-log.md](docs/change-log.md): confirmed changes and debugging history
 
 ## Current Project Status
