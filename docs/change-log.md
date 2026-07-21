@@ -20,6 +20,56 @@ Why:
 Verification:
 ```
 
+## 2026-07-21 - Add Operator Demo Flow
+
+What changed:
+
+- Added `docs/operator-demo-flow.md` as a clean-boot checklist for demo and handoff.
+- Linked the operator demo flow from the root `README.md` and `docs/README.md`.
+- Included expected boot status, sensor checks, motor driver checks, calibration flow, camera/OpenCV checks, one-shot motion testing, auto-control demo steps, shutdown, and fail conditions.
+
+Why:
+
+The project needs a short operator-facing procedure that can be followed from a clean boot without reading the firmware source or deeper architecture notes.
+
+Verification:
+
+- Cross-checked command names and expected statuses against `docs/firmware-serial-protocol.md`.
+- Verified the checklist links from the root README and docs index.
+
+## 2026-07-21 - Record Tuned Flame Segmentation Values
+
+What changed:
+
+- Added the current tuned dual-mask HSV values, `minAreaPx`, `kernelSizePx`, and `exposureTime` to the root `README.md`.
+- Added the same tuned values to `docs/final-validation.md`.
+- Added the tuned values and reference screenshots to `software/camera/opencv-js-prototype/README.md`.
+
+Why:
+
+These values were found to work well for the current flame setup and need to be preserved for future web app, demo, and validation work.
+
+Verification:
+
+- Confirmed `overlay.png` and `binarymask.png` exist in the repository image folder.
+- Verified all Markdown references point to the current image paths.
+
+## 2026-07-21 - Move Flame Segmentation Images
+
+What changed:
+
+- Moved flame segmentation reference images from `docs/` to the root-level `images/` folder.
+- Updated image links in `README.md`, `docs/final-validation.md`, `docs/operator-demo-flow.md`, and `software/camera/opencv-js-prototype/README.md`.
+
+Why:
+
+The screenshots are repository assets used by multiple docs, not only the `docs/` folder. Keeping them in `images/` makes the shared asset location clearer.
+
+Verification:
+
+- Searched the repo for `overlay.png` and `binarymask.png` references.
+- Verified no stale `docs/overlay.png`, `docs/binarymask.png`, or local `overlay.png` references remain.
+
 ## 2026-07-16 - Document Thermocouple Channel Order
 
 What changed:

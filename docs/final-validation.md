@@ -320,11 +320,11 @@ Tracking settings:
 
 Current flame segmentation overlay:
 
-![Current flame segmentation overlay](overlay.png)
+![Current flame segmentation overlay](../images/overlay.png)
 
 Current binary mask:
 
-![Current flame segmentation binary mask](binarymask.png)
+![Current flame segmentation binary mask](../images/binarymask.png)
 
 Validation checks:
 

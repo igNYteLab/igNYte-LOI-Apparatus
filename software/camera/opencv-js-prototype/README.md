@@ -138,11 +138,11 @@ exposureTime: 35
 
 Current overlay:
 
-![Current flame segmentation overlay](../../../docs/overlay.png)
+![Current flame segmentation overlay](../../../images/overlay.png)
 
 Current binary mask:
 
-![Current flame segmentation binary mask](../../../docs/binarymask.png)
+![Current flame segmentation binary mask](../../../images/binarymask.png)
 
 OpenCV.js is loaded in `index.html` from:
 

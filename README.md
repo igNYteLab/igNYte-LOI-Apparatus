@@ -57,27 +57,6 @@ The active firmware targets a DFRobot FireBeetle 2 ESP32-P4 mounted on the `moth
 
 The OpenCV.js work in this repo is a standalone prototype used to validate flame segmentation and tracking behavior before or alongside integration into the IgNYte web app.
 
-## Web App Relationship
-
-The user-facing IgNYte web app is not owned by this repository. The web app connects to the firmware over Web Serial, displays sensor telemetry, and can host the flame-tracking controls once integrated.
-
-Use this repo for:
-
-- Firmware changes
-- Hardware board files and errata
-- Serial protocol documentation
-- Motor and sensor bring-up notes
-- Standalone OpenCV.js tracking experiments
-- Final validation and handoff documentation
-
-Use [ikasturirangan/ignyte](https://github.com/ikasturirangan/ignyte) for:
-
-- Production web UI
-- Web Serial integration UI
-- Dashboard and experiment workflow changes
-- App-side database/schema behavior
-- Deployable web app behavior
-
 ## Firmware
 
 Active firmware path:
@@ -166,6 +145,55 @@ Use this order when bringing up the full apparatus from a cold start:
 
 For the full demo checklist, use [docs/operator-demo-flow.md](docs/operator-demo-flow.md).
 
+## Production Web App
+
+The production IgNYte web app lives in the separate
+[ikasturirangan/ignyte](https://github.com/ikasturirangan/ignyte) repository.
+This repo owns the apparatus firmware, hardware files, serial protocol, and
+OpenCV prototype; the web app owns the production UI, dashboard workflow, local
+data model, and export behavior.
+
+The web app expects the firmware protocol documented in
+[docs/firmware-serial-protocol.md](docs/firmware-serial-protocol.md):
+newline-delimited JSON over USB serial at `115200` baud. Browser-side board
+control uses Web Serial, so operators should use Chrome or Edge over
+`localhost` or HTTPS.
+
+During a test, the web app exposes board connect/reset, live telemetry, serial
+console, motor controls, flow setpoints, sensor status/configuration commands,
+safety-gated start/stop, RGB camera recording/OpenCV tracking, HSI preview
+recording, and frame export FPS selection.
+
+At the end of a run, the app saves a zip archive named:
+
+```text
+YYYYMMDD-HHMMSS-PSETID.zip
+```
+
+Expected contents:
+
+```text
+YYYYMMDD-HHMMSS-PSETID.json
+YYYYMMDD-HHMMSS-PSETID-rgb.webm
+YYYYMMDD-HHMMSS-PSETID-hsi.webm
+frames/
+  YYYYMMDD-HHMMSS-Frame000001.jpg
+  YYYYMMDD-HHMMSS-Frame000002.jpg
+  ...
+```
+
+The JSON stores run metadata, the frame list, and all sensor samples. Each
+sample gets an `elapsedMs` timestamp from test start and an `associatedFrame`
+pointing to the nearest exported frame, including the frame number, filename,
+frame time, and time delta. This gives post-processing a direct telemetry to
+image alignment.
+
+Current HSI support is browser-preview video/JPEG only. It is not native RAW
+hyperspectral datacube capture. A real Telops-style `.raw/.hdr`,
+`radiance.sc/.hdr`, or `.hcc` workflow should be handled by a native camera
+agent or vendor software, with those native files referenced from the web app's
+archive manifest.
+
 ## Camera / OpenCV Prototype
 
 The standalone OpenCV.js prototype lives at:
@@ -190,11 +218,11 @@ exposureTime: 35
 
 Current overlay:
 
-![Current flame segmentation overlay](docs/overlay.png)
+![Current flame segmentation overlay](images/overlay.png)
 
 Current binary mask:
 
-![Current flame segmentation binary mask](docs/binarymask.png)
+![Current flame segmentation binary mask](images/binarymask.png)
 
 Start here:
 

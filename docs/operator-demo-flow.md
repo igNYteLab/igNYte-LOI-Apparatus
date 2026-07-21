@@ -125,9 +125,9 @@ exposureTime: 35
 
 4. Confirm the overlay and mask match the reference images:
 
-![Current flame segmentation overlay](overlay.png)
+![Current flame segmentation overlay](../images/overlay.png)
 
-![Current flame segmentation binary mask](binarymask.png)
+![Current flame segmentation binary mask](../images/binarymask.png)
 
 Expected behavior:
 
