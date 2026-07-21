@@ -123,18 +123,32 @@ function detectTarget(imageData, options, includeMask) {
   const src = runtime.matFromImageData(imageData)
   const rgb = new runtime.Mat()
   const hsv = new runtime.Mat()
+  const brightMask = new runtime.Mat()
+  const coloredMask = new runtime.Mat()
   const mask = new runtime.Mat()
   const cleaned = new runtime.Mat()
-  const low = new runtime.Mat(src.rows, src.cols, runtime.CV_8UC3, [
-    options.hsvLow.h,
-    options.hsvLow.s,
-    options.hsvLow.v,
+  const brightLow = new runtime.Mat(src.rows, src.cols, runtime.CV_8UC3, [
+    options.brightHsvLow.h,
+    options.brightHsvLow.s,
+    options.brightHsvLow.v,
     0,
   ])
-  const high = new runtime.Mat(src.rows, src.cols, runtime.CV_8UC3, [
-    options.hsvHigh.h,
-    options.hsvHigh.s,
-    options.hsvHigh.v,
+  const brightHigh = new runtime.Mat(src.rows, src.cols, runtime.CV_8UC3, [
+    options.brightHsvHigh.h,
+    options.brightHsvHigh.s,
+    options.brightHsvHigh.v,
+    0,
+  ])
+  const coloredLow = new runtime.Mat(src.rows, src.cols, runtime.CV_8UC3, [
+    options.coloredHsvLow.h,
+    options.coloredHsvLow.s,
+    options.coloredHsvLow.v,
+    0,
+  ])
+  const coloredHigh = new runtime.Mat(src.rows, src.cols, runtime.CV_8UC3, [
+    options.coloredHsvHigh.h,
+    options.coloredHsvHigh.s,
+    options.coloredHsvHigh.v,
     0,
   ])
   const contours = new runtime.MatVector()
@@ -145,7 +159,9 @@ function detectTarget(imageData, options, includeMask) {
   try {
     runtime.cvtColor(src, rgb, runtime.COLOR_RGBA2RGB)
     runtime.cvtColor(rgb, hsv, runtime.COLOR_RGB2HSV)
-    runtime.inRange(hsv, low, high, mask)
+    runtime.inRange(hsv, brightLow, brightHigh, brightMask)
+    runtime.inRange(hsv, coloredLow, coloredHigh, coloredMask)
+    runtime.bitwise_or(brightMask, coloredMask, mask)
     runtime.morphologyEx(mask, cleaned, runtime.MORPH_OPEN, kernel)
     runtime.morphologyEx(cleaned, cleaned, runtime.MORPH_CLOSE, kernel)
     runtime.findContours(
@@ -204,10 +220,14 @@ function detectTarget(imageData, options, includeMask) {
     src.delete()
     rgb.delete()
     hsv.delete()
+    brightMask.delete()
+    coloredMask.delete()
     mask.delete()
     cleaned.delete()
-    low.delete()
-    high.delete()
+    brightLow.delete()
+    brightHigh.delete()
+    coloredLow.delete()
+    coloredHigh.delete()
     contours.delete()
     hierarchy.delete()
     kernel.delete()

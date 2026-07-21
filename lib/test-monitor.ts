@@ -17,6 +17,12 @@ export type TestArchiveMeta = {
   notes?: string
   videoFile: string | null
   videoError: string | null
+  rgbVideoFile?: string | null
+  hsiVideoFile?: string | null
+  rgbVideoError?: string | null
+  hsiVideoError?: string | null
+  frameSource?: "hsi" | "rgb"
+  frameSourceVideoFile?: string | null
   framesDirectory?: string
 }
 

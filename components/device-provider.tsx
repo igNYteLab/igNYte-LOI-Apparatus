@@ -95,7 +95,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     SensorStatusEntry[] | null
   >(null)
   const [i2c, setI2c] = useState<{ addresses: number[]; count: number } | null>(
-    null,
+    null
   )
   const [syncCalibrated, setSyncCalibrated] = useState(false)
   const [syncOffsetMs, setSyncOffsetMs] = useState<number | null>(null)
@@ -185,7 +185,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     if (telemetryFlushTimerRef.current !== null) return
     telemetryFlushTimerRef.current = window.setTimeout(
       flushTelemetryUi,
-      TELEMETRY_UI_FLUSH_MS,
+      TELEMETRY_UI_FLUSH_MS
     )
   }, [flushTelemetryUi])
 
@@ -196,10 +196,14 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     if (!reader) return
     const decoder = new TextDecoder()
     let buffer = ""
+    let unexpectedDisconnect = false
     try {
       while (keepReadingRef.current) {
         const { value, done } = await reader.read()
-        if (done) break
+        if (done) {
+          unexpectedDisconnect = keepReadingRef.current
+          break
+        }
         if (!value) continue
         buffer += decoder.decode(value, { stream: true })
         const parts = buffer.split(/\r?\n/)
@@ -248,7 +252,10 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
           if (parsed.kind !== "status") continue
           const s = parsed.status
           s.perfRecvMs = perfNow
-          if (typeof s.t_us === "number" && syncBestOffsetRef.current !== null) {
+          if (
+            typeof s.t_us === "number" &&
+            syncBestOffsetRef.current !== null
+          ) {
             s.syncedMs = s.t_us / 1000 + syncBestOffsetRef.current
           }
 
@@ -298,7 +305,8 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
           const prev = motorRef.current
           motorRef.current = {
             enabled: patch.enabled ?? prev?.enabled ?? false,
-            endstop_active: patch.endstop_active ?? prev?.endstop_active ?? false,
+            endstop_active:
+              patch.endstop_active ?? prev?.endstop_active ?? false,
             velocity_mode: patch.velocity_mode ?? prev?.velocity_mode ?? false,
             position_steps: patch.position_steps ?? prev?.position_steps ?? 0,
             position_mm: patch.position_mm ?? prev?.position_mm ?? 0,
@@ -314,6 +322,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       if (keepReadingRef.current) {
+        unexpectedDisconnect = true
         setError(err instanceof Error ? err.message : "Serial read error")
       }
     } finally {
@@ -321,6 +330,19 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         reader.releaseLock()
       } catch {
         // ignore
+      }
+      if (readerRef.current === reader) {
+        readerRef.current = null
+      }
+      if (unexpectedDisconnect) {
+        keepReadingRef.current = false
+        try {
+          await portRef.current?.close()
+        } catch {
+          // ignore
+        }
+        portRef.current = null
+        setStatus("disconnected")
       }
     }
   }, [scheduleTelemetryUiFlush])

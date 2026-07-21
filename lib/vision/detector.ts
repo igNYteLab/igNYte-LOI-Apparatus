@@ -31,18 +31,32 @@ export function detectTarget(
   const src = cv.imread(sourceCanvas)
   const rgb = new cv.Mat()
   const hsv = new cv.Mat()
+  const brightMask = new cv.Mat()
+  const coloredMask = new cv.Mat()
   const mask = new cv.Mat()
   const cleaned = new cv.Mat()
-  const low = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [
-    options.hsvLow.h,
-    options.hsvLow.s,
-    options.hsvLow.v,
+  const brightLow = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [
+    options.brightHsvLow.h,
+    options.brightHsvLow.s,
+    options.brightHsvLow.v,
     0,
   ])
-  const high = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [
-    options.hsvHigh.h,
-    options.hsvHigh.s,
-    options.hsvHigh.v,
+  const brightHigh = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [
+    options.brightHsvHigh.h,
+    options.brightHsvHigh.s,
+    options.brightHsvHigh.v,
+    0,
+  ])
+  const coloredLow = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [
+    options.coloredHsvLow.h,
+    options.coloredHsvLow.s,
+    options.coloredHsvLow.v,
+    0,
+  ])
+  const coloredHigh = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [
+    options.coloredHsvHigh.h,
+    options.coloredHsvHigh.s,
+    options.coloredHsvHigh.v,
     0,
   ])
   const contours = new cv.MatVector()
@@ -53,7 +67,9 @@ export function detectTarget(
   try {
     cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB)
     cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV)
-    cv.inRange(hsv, low, high, mask)
+    cv.inRange(hsv, brightLow, brightHigh, brightMask)
+    cv.inRange(hsv, coloredLow, coloredHigh, coloredMask)
+    cv.bitwise_or(brightMask, coloredMask, mask)
     cv.morphologyEx(mask, cleaned, cv.MORPH_OPEN, kernel)
     cv.morphologyEx(cleaned, cleaned, cv.MORPH_CLOSE, kernel)
     cv.findContours(
@@ -111,10 +127,14 @@ export function detectTarget(
     src.delete()
     rgb.delete()
     hsv.delete()
+    brightMask.delete()
+    coloredMask.delete()
     mask.delete()
     cleaned.delete()
-    low.delete()
-    high.delete()
+    brightLow.delete()
+    brightHigh.delete()
+    coloredLow.delete()
+    coloredHigh.delete()
     contours.delete()
     hierarchy.delete()
     kernel.delete()

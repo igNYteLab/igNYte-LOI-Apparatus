@@ -587,16 +587,40 @@ function VisionPanelComponent({
           </div>
 
           <Separator />
-          <div className="text-xs font-medium">Detector (HSV, OpenCV H 0–180)</div>
-          <div className="grid grid-cols-3 gap-2">
-            <NumField label="H low" value={det.hsvLow.h} min={0} max={180} onChange={(v) => patchDetector({ hsvLow: { ...det.hsvLow, h: v } })} />
-            <NumField label="S low" value={det.hsvLow.s} min={0} max={255} onChange={(v) => patchDetector({ hsvLow: { ...det.hsvLow, s: v } })} />
-            <NumField label="V low" value={det.hsvLow.v} min={0} max={255} onChange={(v) => patchDetector({ hsvLow: { ...det.hsvLow, v: v } })} />
-            <NumField label="H high" value={det.hsvHigh.h} min={0} max={180} onChange={(v) => patchDetector({ hsvHigh: { ...det.hsvHigh, h: v } })} />
-            <NumField label="S high" value={det.hsvHigh.s} min={0} max={255} onChange={(v) => patchDetector({ hsvHigh: { ...det.hsvHigh, s: v } })} />
-            <NumField label="V high" value={det.hsvHigh.v} min={0} max={255} onChange={(v) => patchDetector({ hsvHigh: { ...det.hsvHigh, v: v } })} />
-            <NumField label="Min area" value={det.minAreaPx} step={50} min={0} onChange={(v) => patchDetector({ minAreaPx: v })} />
-            <NumField label="Kernel px" value={det.kernelSizePx} step={1} min={1} onChange={(v) => patchDetector({ kernelSizePx: v })} />
+          <div className="text-xs font-medium">
+            Detector (dual HSV, OpenCV H 0–180)
+          </div>
+          <div className="grid gap-3">
+            <div>
+              <div className="mb-2 text-xs text-muted-foreground">
+                Bright low-saturation flame
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <NumField label="H low" value={det.brightHsvLow.h} min={0} max={180} onChange={(v) => patchDetector({ brightHsvLow: { ...det.brightHsvLow, h: v } })} />
+                <NumField label="S low" value={det.brightHsvLow.s} min={0} max={255} onChange={(v) => patchDetector({ brightHsvLow: { ...det.brightHsvLow, s: v } })} />
+                <NumField label="V low" value={det.brightHsvLow.v} min={0} max={255} onChange={(v) => patchDetector({ brightHsvLow: { ...det.brightHsvLow, v } })} />
+                <NumField label="H high" value={det.brightHsvHigh.h} min={0} max={180} onChange={(v) => patchDetector({ brightHsvHigh: { ...det.brightHsvHigh, h: v } })} />
+                <NumField label="S high" value={det.brightHsvHigh.s} min={0} max={255} onChange={(v) => patchDetector({ brightHsvHigh: { ...det.brightHsvHigh, s: v } })} />
+                <NumField label="V high" value={det.brightHsvHigh.v} min={0} max={255} onChange={(v) => patchDetector({ brightHsvHigh: { ...det.brightHsvHigh, v } })} />
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs text-muted-foreground">
+                Colored orange/yellow flame
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <NumField label="H low" value={det.coloredHsvLow.h} min={0} max={180} onChange={(v) => patchDetector({ coloredHsvLow: { ...det.coloredHsvLow, h: v } })} />
+                <NumField label="S low" value={det.coloredHsvLow.s} min={0} max={255} onChange={(v) => patchDetector({ coloredHsvLow: { ...det.coloredHsvLow, s: v } })} />
+                <NumField label="V low" value={det.coloredHsvLow.v} min={0} max={255} onChange={(v) => patchDetector({ coloredHsvLow: { ...det.coloredHsvLow, v } })} />
+                <NumField label="H high" value={det.coloredHsvHigh.h} min={0} max={180} onChange={(v) => patchDetector({ coloredHsvHigh: { ...det.coloredHsvHigh, h: v } })} />
+                <NumField label="S high" value={det.coloredHsvHigh.s} min={0} max={255} onChange={(v) => patchDetector({ coloredHsvHigh: { ...det.coloredHsvHigh, s: v } })} />
+                <NumField label="V high" value={det.coloredHsvHigh.v} min={0} max={255} onChange={(v) => patchDetector({ coloredHsvHigh: { ...det.coloredHsvHigh, v } })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <NumField label="Min area" value={det.minAreaPx} step={50} min={0} onChange={(v) => patchDetector({ minAreaPx: v })} />
+              <NumField label="Kernel px" value={det.kernelSizePx} step={1} min={1} onChange={(v) => patchDetector({ kernelSizePx: v })} />
+            </div>
           </div>
 
           <Separator />

@@ -5,10 +5,14 @@
 export type HsvColor = { h: number; s: number; v: number }
 
 export type DetectorOptions = {
-  /** Lower HSV bound (OpenCV H is 0..180). */
-  hsvLow: HsvColor
-  /** Upper HSV bound. */
-  hsvHigh: HsvColor
+  /** Lower HSV bound for bright low-saturation flame regions (OpenCV H is 0..180). */
+  brightHsvLow: HsvColor
+  /** Upper HSV bound for bright low-saturation flame regions. */
+  brightHsvHigh: HsvColor
+  /** Lower HSV bound for saturated orange/yellow flame regions. */
+  coloredHsvLow: HsvColor
+  /** Upper HSV bound for saturated orange/yellow flame regions. */
+  coloredHsvHigh: HsvColor
   /** Minimum contour area (px²) to count as a target. */
   minAreaPx: number
   /** Morphology open/close kernel size (px). */
@@ -59,6 +63,20 @@ export type VisionConfig = {
   controller: ControllerOptions
 }
 
+type LegacyDetectorOptions = Partial<DetectorOptions> & {
+  hsvLow?: HsvColor
+  hsvHigh?: HsvColor
+}
+
+const DEFAULT_DETECTOR_OPTIONS: DetectorOptions = {
+  brightHsvLow: { h: 0, s: 0, v: 133 },
+  brightHsvHigh: { h: 13, s: 255, v: 255 },
+  coloredHsvLow: { h: 0, s: 196, v: 19 },
+  coloredHsvHigh: { h: 8, s: 255, v: 255 },
+  minAreaPx: 50,
+  kernelSizePx: 2,
+}
+
 export const DEFAULT_VISION_CONFIG: VisionConfig = {
   // Kept modest: OpenCV runs in a worker, but smaller frames still reduce
   // detection latency and leave more CPU headroom for the dashboard.
@@ -69,20 +87,15 @@ export const DEFAULT_VISION_CONFIG: VisionConfig = {
     analysisWidthPx: 320,
     analysisHeightPx: 240,
   },
-  detector: {
-    hsvLow: { h: 5, s: 80, v: 80 },
-    hsvHigh: { h: 45, s: 255, v: 255 },
-    minAreaPx: 500,
-    kernelSizePx: 5,
-  },
+  detector: DEFAULT_DETECTOR_OPTIONS,
   controller: {
-    mode: "p",
+    mode: "pi",
     setpointYNorm: 0.5,
     deadbandPx: 2,
     kpMmSPerPx: 0.1,
     kiMmSPerPxS: 0.01,
     maxIntegralErrorPxS: 1000,
-    feedforwardEnabled: false,
+    feedforwardEnabled: true,
     feedforwardGain: 0.5,
     mmPerPx: 0.05,
     imageVelocityAlpha: 0.35,
@@ -92,6 +105,45 @@ export const DEFAULT_VISION_CONFIG: VisionConfig = {
     processFps: 12,
     autoControlHz: 10,
   },
+}
+
+export function normalizeDetectorOptions(
+  detector: LegacyDetectorOptions,
+): DetectorOptions {
+  return {
+    brightHsvLow:
+      detector.brightHsvLow ??
+      detector.hsvLow ??
+      DEFAULT_DETECTOR_OPTIONS.brightHsvLow,
+    brightHsvHigh:
+      detector.brightHsvHigh ??
+      detector.hsvHigh ??
+      DEFAULT_DETECTOR_OPTIONS.brightHsvHigh,
+    coloredHsvLow:
+      detector.coloredHsvLow ??
+      detector.hsvLow ??
+      DEFAULT_DETECTOR_OPTIONS.coloredHsvLow,
+    coloredHsvHigh:
+      detector.coloredHsvHigh ??
+      detector.hsvHigh ??
+      DEFAULT_DETECTOR_OPTIONS.coloredHsvHigh,
+    minAreaPx: detector.minAreaPx ?? DEFAULT_DETECTOR_OPTIONS.minAreaPx,
+    kernelSizePx: detector.kernelSizePx ?? DEFAULT_DETECTOR_OPTIONS.kernelSizePx,
+  }
+}
+
+export function normalizeVisionConfig(config: Partial<VisionConfig>): VisionConfig {
+  return {
+    camera: {
+      ...DEFAULT_VISION_CONFIG.camera,
+      ...config.camera,
+    },
+    detector: normalizeDetectorOptions(config.detector ?? {}),
+    controller: {
+      ...DEFAULT_VISION_CONFIG.controller,
+      ...config.controller,
+    },
+  }
 }
 
 /** Confidence below which auto-control refuses to send a motion command. */

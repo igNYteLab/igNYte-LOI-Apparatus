@@ -182,12 +182,17 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     i2c,
     sync,
     connect: connectDevice,
+    disconnect: disconnectDevice,
     sendCommand,
   } = useDevice()
 
   const rgbCameraRef = React.useRef<CameraController | null>(null)
-  const recorderRef = React.useRef<MediaRecorder | null>(null)
-  const chunksRef = React.useRef<Blob[]>([])
+  const hsiCameraRef = React.useRef<CameraController | null>(null)
+  const rgbRecorderRef = React.useRef<MediaRecorder | null>(null)
+  const hsiRecorderRef = React.useRef<MediaRecorder | null>(null)
+  const rgbChunksRef = React.useRef<Blob[]>([])
+  const hsiChunksRef = React.useRef<Blob[]>([])
+  const pendingRecorderStopsRef = React.useRef(0)
   const capturedFramesRef = React.useRef<CapturedFrame[]>([])
   const frameCaptureTimerRef = React.useRef<number | null>(null)
   const frameCaptureBusyRef = React.useRef(false)
@@ -220,8 +225,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
   const [frameExportFps, setFrameExportFps] = React.useState(
     DEFAULT_FRAME_EXPORT_FPS
   )
-  const [videoBlob, setVideoBlob] = React.useState<Blob | null>(null)
-  const [videoError, setVideoError] = React.useState<string | null>(null)
+  const [rgbVideoBlob, setRgbVideoBlob] = React.useState<Blob | null>(null)
+  const [hsiVideoBlob, setHsiVideoBlob] = React.useState<Blob | null>(null)
+  const [rgbVideoError, setRgbVideoError] = React.useState<string | null>(null)
+  const [hsiVideoError, setHsiVideoError] = React.useState<string | null>(null)
   const [runBaseName, setRunBaseName] = React.useState("")
   const [runTimestampLabel, setRunTimestampLabel] = React.useState("")
   const [saveOpen, setSaveOpen] = React.useState(false)
@@ -290,6 +297,21 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     }
   }
 
+  async function resetBoardConnection() {
+    if (recording) {
+      toast.error("Stop the active test before resetting the board link.")
+      return
+    }
+    try {
+      await disconnectDevice()
+      toast.success("Board connection reset")
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Board connection reset failed."
+      )
+    }
+  }
+
   // Mainsail-style emergency stop: kill motion and cut both gas flows.
   // Each command is attempted in order even if an earlier one fails, so a single
   // write error can never leave the motor enabled or gas still flowing.
@@ -330,13 +352,17 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       return
     }
     setSafetyOpen(false)
+    // eslint-disable-next-line react-hooks/purity -- Event-handler timestamp for the run start.
     const startMs = Date.now()
+    // eslint-disable-next-line react-hooks/purity -- Event-handler timestamp for the run start.
     const startPerfMs = performance.now()
     const timestampLabel = formatLocalTimestamp(new Date(startMs))
     const nextRunBaseName = runArchiveBaseName(timestampLabel, psetId)
-    chunksRef.current = []
+    rgbChunksRef.current = []
+    hsiChunksRef.current = []
     capturedFramesRef.current = []
     frameCounterRef.current = 0
+    pendingRecorderStopsRef.current = 0
     sessionStartPerfMsRef.current = startPerfMs
     setSessionStartMs(startMs)
     setSessionStartPerfMs(startPerfMs)
@@ -344,8 +370,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     setSessionStoppedAt(null)
     setSessionSamples([])
     setCapturedFrameCount(0)
-    setVideoBlob(null)
-    setVideoError(null)
+    setRgbVideoBlob(null)
+    setHsiVideoBlob(null)
+    setRgbVideoError(null)
+    setHsiVideoError(null)
     setRunBaseName(nextRunBaseName)
     setRunTimestampLabel(timestampLabel)
     setClockNow(startMs)
@@ -355,38 +383,118 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       if (typeof MediaRecorder === "undefined") {
         throw new Error("MediaRecorder is not available in this browser.")
       }
-      const stream = await rgbCameraRef.current?.getRecordingStream()
-      if (!stream) throw new Error("RGB camera stream is unavailable.")
-      const mimeType = preferredRecorderMimeType()
-      const recorder = new MediaRecorder(
-        stream,
-        mimeType ? { mimeType } : undefined
+      const rgbStream = await rgbCameraRef.current?.getRecordingStream()
+      if (!rgbStream) throw new Error("RGB camera stream is unavailable.")
+      const hsiStream = await hsiCameraRef.current?.getRecordingStream()
+      if (!hsiStream) {
+        throw new Error("Hyperspectral camera stream is unavailable.")
+      }
+
+      const rgbRecorder = createSessionRecorder(
+        "rgb",
+        rgbStream,
+        rgbChunksRef,
+        setRgbVideoBlob,
+        setRgbVideoError
       )
-      recorderRef.current = recorder
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data)
-      }
-      recorder.onstop = () => {
-        const blob = chunksRef.current.length
-          ? new Blob(chunksRef.current, {
-              type: recorder.mimeType || "video/webm",
-            })
-          : null
-        setVideoBlob(blob)
-        rgbCameraRef.current?.stopRecordingCapture()
-        setSaveOpen(true)
-      }
+      const hsiRecorder = createSessionRecorder(
+        "hsi",
+        hsiStream,
+        hsiChunksRef,
+        setHsiVideoBlob,
+        setHsiVideoError
+      )
+      rgbRecorderRef.current = rgbRecorder
+      hsiRecorderRef.current = hsiRecorder
+      pendingRecorderStopsRef.current = 2
       startLiveFrameFallback(timestampLabel, startPerfMs)
-      recorder.start(1000)
+      rgbRecorder.start(1000)
+      hsiRecorder.start(1000)
     } catch (err) {
-      setVideoError(
+      const message =
         err instanceof Error ? err.message : "Video capture failed."
-      )
-      recorderRef.current = null
+      setRgbVideoError(message)
+      setHsiVideoError(message)
+      stopLiveFrameFallback()
+      rgbCameraRef.current?.stopRecordingCapture()
+      hsiCameraRef.current?.stopRecordingCapture()
+      setRecording(false)
+      toast.error(message)
+      rgbRecorderRef.current = null
+      hsiRecorderRef.current = null
+      pendingRecorderStopsRef.current = 0
     }
   }
 
+  function createSessionRecorder(
+    cameraRole: "rgb" | "hsi",
+    stream: MediaStream,
+    chunksRef: React.MutableRefObject<Blob[]>,
+    setBlob: React.Dispatch<React.SetStateAction<Blob | null>>,
+    setError: React.Dispatch<React.SetStateAction<string | null>>
+  ) {
+    const mimeType = preferredRecorderMimeType()
+    const recorder = new MediaRecorder(
+      stream,
+      mimeType ? { mimeType } : undefined
+    )
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunksRef.current.push(event.data)
+    }
+    recorder.onerror = () => {
+      setError(`${cameraRole.toUpperCase()} video recorder failed.`)
+    }
+    recorder.onstop = () => {
+      const blob = chunksRef.current.length
+        ? new Blob(chunksRef.current, {
+            type: recorder.mimeType || "video/webm",
+          })
+        : null
+      setBlob(blob)
+      finalizeRecorderStop()
+    }
+    return recorder
+  }
+
+  function finalizeRecorderStop() {
+    pendingRecorderStopsRef.current = Math.max(
+      0,
+      pendingRecorderStopsRef.current - 1
+    )
+    if (pendingRecorderStopsRef.current === 0) {
+      rgbCameraRef.current?.stopRecordingCapture()
+      hsiCameraRef.current?.stopRecordingCapture()
+      setSaveOpen(true)
+    }
+  }
+
+  function stopRecorderIfActive(recorder: MediaRecorder | null) {
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop()
+      return true
+    }
+    return false
+  }
+
+  function stopSessionRecorders() {
+    const activeRecorders = [
+      rgbRecorderRef.current,
+      hsiRecorderRef.current,
+    ].filter((recorder) => recorder && recorder.state !== "inactive")
+
+    pendingRecorderStopsRef.current = activeRecorders.length
+    if (!activeRecorders.length) {
+      rgbCameraRef.current?.stopRecordingCapture()
+      hsiCameraRef.current?.stopRecordingCapture()
+      setSaveOpen(true)
+      return
+    }
+
+    activeRecorders.forEach((recorder) => stopRecorderIfActive(recorder))
+  }
+
   function stopRecording() {
+    // eslint-disable-next-line react-hooks/purity -- Event-handler timestamp for the run stop.
     const stopMs = Date.now()
     stopLiveFrameFallback()
     setSessionStoppedAt(new Date(stopMs).toISOString())
@@ -402,22 +510,18 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     setSessionSamples(
       currentLog.filter((s) => s.receivedAt >= start && s.receivedAt <= stopMs)
     )
-
-    const recorder = recorderRef.current
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop()
-    } else {
-      rgbCameraRef.current?.stopRecordingCapture()
-      setSaveOpen(true)
-    }
+    stopSessionRecorders()
   }
 
   function clearSession() {
     stopLiveFrameFallback()
-    recorderRef.current = null
-    chunksRef.current = []
+    rgbRecorderRef.current = null
+    hsiRecorderRef.current = null
+    rgbChunksRef.current = []
+    hsiChunksRef.current = []
     capturedFramesRef.current = []
     frameCounterRef.current = 0
+    pendingRecorderStopsRef.current = 0
     sessionStartPerfMsRef.current = null
     setRecording(false)
     setSessionStartMs(null)
@@ -426,8 +530,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     setSessionStoppedAt(null)
     setSessionSamples([])
     setCapturedFrameCount(0)
-    setVideoBlob(null)
-    setVideoError(null)
+    setRgbVideoBlob(null)
+    setHsiVideoBlob(null)
+    setRgbVideoError(null)
+    setHsiVideoError(null)
     setRunBaseName("")
     setRunTimestampLabel("")
     setSaveOpen(false)
@@ -449,7 +555,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       if (frameCaptureBusyRef.current) return
       frameCaptureBusyRef.current = true
       try {
-        const blob = await rgbCameraRef.current?.captureFrameJpeg(JPEG_QUALITY)
+        const blob = await hsiCameraRef.current?.captureFrameJpeg(JPEG_QUALITY)
         if (!blob) return
         const frameNumber = frameCounterRef.current + 1
         frameCounterRef.current = frameNumber
@@ -467,7 +573,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
         capturedFramesRef.current = [...capturedFramesRef.current, frame]
         setCapturedFrameCount(capturedFramesRef.current.length)
       } catch {
-        // Fallback capture is best effort; WebM extraction remains primary.
+        // HSI fallback capture is best effort; HSI WebM extraction remains primary.
       } finally {
         frameCaptureBusyRef.current = false
       }
@@ -484,7 +590,12 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     if (!sessionStartedAt || !sessionStoppedAt) return
     setArchiveSaving(true)
     const safeName = sanitizeArchiveName(saveName)
-    const videoFile = videoBlob ? `${safeName}.webm` : null
+    const rgbVideoFile = rgbVideoBlob ? `${safeName}-rgb.webm` : null
+    const hsiVideoFile = hsiVideoBlob ? `${safeName}-hsi.webm` : null
+    const videoFile = hsiVideoFile ?? rgbVideoFile
+    const videoError = [rgbVideoError, hsiVideoError]
+      .filter(Boolean)
+      .join(" | ")
     let frames: CapturedFrame[]
     const fallbackFrames = capturedFramesRef.current
     const fallbackDurationSeconds = Math.max(
@@ -494,9 +605,9 @@ export function MonitorGrid({ context }: MonitorGridProps) {
         1000
     )
     try {
-      frames = videoBlob
+      frames = hsiVideoBlob
         ? await extractJpegFramesFromVideo(
-            videoBlob,
+            hsiVideoBlob,
             runTimestampLabel ||
               formatLocalTimestamp(new Date(sessionStartedAt)),
             clampFrameExportFps(frameExportFps),
@@ -511,15 +622,15 @@ export function MonitorGrid({ context }: MonitorGridProps) {
         return
       }
       toast.warning(
-        "Video frame extraction failed; using live captured frames."
+        "HSI video frame extraction failed; using live HSI captured frames."
       )
       frames = fallbackFrames
     }
     if (!frames.length && fallbackFrames.length) {
       frames = fallbackFrames
     }
-    if (!frames.length && videoBlob) {
-      toast.error("No frames could be exported from this recording.")
+    if (!frames.length && hsiVideoBlob) {
+      toast.error("No HSI frames could be exported from this recording.")
       setArchiveSaving(false)
       return
     }
@@ -553,7 +664,13 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       operator,
       sample: sampleLabel,
       videoFile,
-      videoError,
+      videoError: videoError || null,
+      rgbVideoFile,
+      hsiVideoFile,
+      rgbVideoError,
+      hsiVideoError,
+      frameSource: "hsi" as const,
+      frameSourceVideoFile: hsiVideoFile,
       framesDirectory: "frames",
     }
     const entry: TestArchiveEntry = {
@@ -569,7 +686,12 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     )
     const zipEntries = [
       { path: `${safeName}.json`, data: jsonContent },
-      ...(videoBlob && videoFile ? [{ path: videoFile, data: videoBlob }] : []),
+      ...(rgbVideoBlob && rgbVideoFile
+        ? [{ path: rgbVideoFile, data: rgbVideoBlob }]
+        : []),
+      ...(hsiVideoBlob && hsiVideoFile
+        ? [{ path: hsiVideoFile, data: hsiVideoBlob }]
+        : []),
       ...frames.map((frame) => ({
         path: `frames/${frame.filename}`,
         data: frame.blob,
@@ -691,6 +813,23 @@ export function MonitorGrid({ context }: MonitorGridProps) {
             ) : null}
             <Button
               type="button"
+              variant="outline"
+              size="sm"
+              disabled={
+                !serialSupported || deviceStatus === "connecting" || recording
+              }
+              title={
+                recording
+                  ? "Stop the active test before resetting the board link."
+                  : "Close the serial port and clear board telemetry without reloading the page."
+              }
+              onClick={() => void resetBoardConnection()}
+            >
+              <IconRefresh data-icon="inline-start" />
+              Reset link
+            </Button>
+            <Button
+              type="button"
               variant="destructive"
               size="sm"
               disabled={!connected}
@@ -735,7 +874,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                     }
                   />
                   <MetricPill label="Samples" value={liveSampleCount} />
-                  <MetricPill label="Frames" value={capturedFrameCount} />
+                  <MetricPill label="HSI frames" value={capturedFrameCount} />
                   <MetricPill
                     label="Elapsed"
                     value={
@@ -893,11 +1032,12 @@ export function MonitorGrid({ context }: MonitorGridProps) {
                       variant="rgb"
                     />
                     <CameraCard
+                      ref={hsiCameraRef}
                       title="Hyperspectral Camera"
-                      description="Monitoring-only HSI view."
+                      description="Recordable HSI preview; exported frames come from this stream."
                       storageKey="ignyte.camera.hsi.source"
                       streamUrl={process.env.NEXT_PUBLIC_HSI_CAMERA_URL}
-                      recordable={false}
+                      recordable
                       recording={recording}
                       variant="hsi"
                     />
@@ -996,11 +1136,12 @@ export function MonitorGrid({ context }: MonitorGridProps) {
             <div className="min-h-0 lg:col-span-4">
               {activeTab === "monitoring" ? (
                 <CameraCard
+                  ref={hsiCameraRef}
                   title="Hyperspectral Camera"
-                  description="Monitoring-only HSI view."
+                  description="Recordable HSI preview; exported frames come from this stream."
                   storageKey="ignyte.camera.hsi.source"
                   streamUrl={process.env.NEXT_PUBLIC_HSI_CAMERA_URL}
-                  recordable={false}
+                  recordable
                   recording={recording}
                   variant="hsi"
                 />
@@ -1052,7 +1193,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
               <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
                 <div className="grid grid-cols-2 gap-2">
                   <MetricPill label="Session samples" value={liveSampleCount} />
-                  <MetricPill label="JPEG frames" value={capturedFrameCount} />
+                  <MetricPill label="HSI frames" value={capturedFrameCount} />
                   <MetricPill label="Buffer" value={`${log.length} samples`} />
                   <MetricPill
                     label="Started"
@@ -1196,8 +1337,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
         sampleCount={sessionSamples.length}
         frameCount={capturedFrameCount}
         durationSeconds={sessionDurationSeconds}
-        videoBlob={videoBlob}
-        videoError={videoError}
+        rgbVideoBlob={rgbVideoBlob}
+        hsiVideoBlob={hsiVideoBlob}
+        rgbVideoError={rgbVideoError}
+        hsiVideoError={hsiVideoError}
         saving={archiveSaving}
         onSave={saveArchive}
         onDiscard={clearSession}
@@ -2139,8 +2282,10 @@ function SaveTestDialog({
   sampleCount,
   frameCount,
   durationSeconds,
-  videoBlob,
-  videoError,
+  rgbVideoBlob,
+  hsiVideoBlob,
+  rgbVideoError,
+  hsiVideoError,
   saving,
   onSave,
   onDiscard,
@@ -2151,19 +2296,23 @@ function SaveTestDialog({
   sampleCount: number
   frameCount: number
   durationSeconds: number
-  videoBlob: Blob | null
-  videoError: string | null
+  rgbVideoBlob: Blob | null
+  hsiVideoBlob: Blob | null
+  rgbVideoError: string | null
+  hsiVideoError: string | null
   saving: boolean
   onSave: () => void | Promise<void>
   onDiscard: () => void
 }) {
+  const videoError = [rgbVideoError, hsiVideoError].filter(Boolean).join(" | ")
   return (
     <Dialog open={open}>
       <DialogContent showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Save test</DialogTitle>
           <DialogDescription>
-            Download a zip containing JSON, RGB video, and exported JPEG frames.
+            Download a zip containing JSON, RGB video, HSI video, and HSI JPEG
+            frames.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -2179,13 +2328,23 @@ function SaveTestDialog({
         <div className="grid grid-cols-3 gap-2">
           <MetricPill label="Duration" value={`${durationSeconds}s`} />
           <MetricPill label="Samples" value={sampleCount} />
-          <MetricPill label="Frames" value={frameCount} />
+          <MetricPill label="HSI frames" value={frameCount} />
           <MetricPill
-            label="Video"
+            label="RGB WebM"
             value={
-              videoBlob
-                ? formatBytes(videoBlob.size)
-                : videoError
+              rgbVideoBlob
+                ? formatBytes(rgbVideoBlob.size)
+                : rgbVideoError
+                  ? "Error"
+                  : "None"
+            }
+          />
+          <MetricPill
+            label="HSI WebM"
+            value={
+              hsiVideoBlob
+                ? formatBytes(hsiVideoBlob.size)
+                : hsiVideoError
                   ? "Error"
                   : "None"
             }

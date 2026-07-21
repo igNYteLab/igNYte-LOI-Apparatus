@@ -6,6 +6,7 @@ import { fw } from "@/lib/firmware"
 import {
   DEFAULT_VISION_CONFIG,
   MIN_AUTO_CONTROL_CONFIDENCE,
+  normalizeVisionConfig,
   type CameraOptions,
   type ControllerOptions,
   type DetectorOptions,
@@ -136,7 +137,10 @@ export function useFlameTracker(params: {
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  const [config, setConfig] = useState<VisionConfig>(DEFAULT_VISION_CONFIG)
+  const [config, setConfig] = useState<VisionConfig>(() =>
+    normalizeVisionConfig(DEFAULT_VISION_CONFIG),
+  )
+  const normalizedConfig = normalizeVisionConfig(config)
   const [running, setRunning] = useState(false)
   const [autoControl, setAutoControl] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
@@ -165,7 +169,7 @@ export function useFlameTracker(params: {
 
   useEffect(() => {
     cvRef.current = params.cv
-    configRef.current = config
+    configRef.current = normalizedConfig
     connectedRef.current = params.connected
     sendRef.current = params.sendCommand
   })
@@ -222,7 +226,7 @@ export function useFlameTracker(params: {
 
   // ---- Fail-safe auto-control sender (independent of the video loop) --------
   useEffect(() => {
-    const hz = Math.max(1, config.controller.autoControlHz)
+    const hz = Math.max(1, normalizedConfig.controller.autoControlHz)
     const id = window.setInterval(() => {
       if (!autoRef.current || !connectedRef.current || autoSendBusyRef.current) {
         return
@@ -251,7 +255,7 @@ export function useFlameTracker(params: {
         })
     }, 1000 / hz)
     return () => window.clearInterval(id)
-  }, [config.controller.autoControlHz])
+  }, [normalizedConfig.controller.autoControlHz])
 
   // ---- Processing (one frame) ----------------------------------------------
   const processFrameOnce = useCallback(() => {
@@ -521,18 +525,33 @@ export function useFlameTracker(params: {
         state.lastCommandedMmS,
         state.estimatedAppliedMmS,
       )
-      setConfig((c) => ({ ...c, controller: { ...c.controller, ...partial } }))
+      setConfig((c) => {
+        const normalized = normalizeVisionConfig(c)
+        return {
+          ...normalized,
+          controller: { ...normalized.controller, ...partial },
+        }
+      })
     },
     [],
   )
   const patchCamera = useCallback(
     (partial: Partial<CameraOptions>) =>
-      setConfig((c) => ({ ...c, camera: { ...c.camera, ...partial } })),
+      setConfig((c) => {
+        const normalized = normalizeVisionConfig(c)
+        return { ...normalized, camera: { ...normalized.camera, ...partial } }
+      }),
     [],
   )
   const patchDetector = useCallback(
     (partial: Partial<DetectorOptions>) =>
-      setConfig((c) => ({ ...c, detector: { ...c.detector, ...partial } })),
+      setConfig((c) => {
+        const normalized = normalizeVisionConfig(c)
+        return {
+          ...normalized,
+          detector: { ...normalized.detector, ...partial },
+        }
+      }),
     [],
   )
 
@@ -553,7 +572,7 @@ export function useFlameTracker(params: {
     frameCanvasRef,
     overlayCanvasRef,
     maskCanvasRef,
-    config,
+    config: normalizedConfig,
     patchController,
     patchDetector,
     patchCamera,
