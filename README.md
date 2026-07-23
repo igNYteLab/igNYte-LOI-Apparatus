@@ -9,7 +9,7 @@ Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
 
 IgNYte-FPA contains the firmware, hardware files, validation notes, and prototype companion software for the NYU Tandon IgNYte Lab fire propagation apparatus sensor hub.
 
-Primary author: Will Andre Pasimio Llaneta (`wpl5304`)
+Primary author: Will Andre Pasimio Llaneta [andre-llaneta](https://github.com/andre-llaneta)
 
 This repository focuses on the apparatus-side system: sensor acquisition, motorized vertical camera-stage control, serial command/telemetry output, hardware bring-up notes, and camera-tracking prototypes. The production IgNYte web application lives in a separate repository:
 
