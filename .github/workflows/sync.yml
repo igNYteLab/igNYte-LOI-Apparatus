@@ -10,11 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      SYNC_TOKEN: ${{ secrets.MONOREPO_SYNC_TOKEN || github.token }}
 
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.MONOREPO_SYNC_TOKEN || github.token }}
+          token: ${{ env.SYNC_TOKEN }}
           fetch-depth: 0
 
       - name: Configure Git
@@ -26,14 +28,14 @@ jobs:
         run: |
           git subtree pull \
             --prefix=embedded \
-            https://github.com/andre-llaneta/IgNYte-FPA.git \
+            https://x-access-token:${SYNC_TOKEN}@github.com/andre-llaneta/IgNYte-FPA.git \
             main
 
       - name: Pull IgNYte
         run: |
           git subtree pull \
             --prefix=webapp \
-            https://github.com/ikasturirangan/ignyte.git \
+            https://x-access-token:${SYNC_TOKEN}@github.com/ikasturirangan/ignyte.git \
             main
 
       - name: Push changes

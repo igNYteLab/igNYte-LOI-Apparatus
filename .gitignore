@@ -1,0 +1,65 @@
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.code-workspace
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+!.env.local.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node / Next.js
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# PlatformIO / embedded build output
+.pio/
+.pioenvs/
+.piolibdeps/
+embedded/firmware/**/.pio/
+embedded/firmware/**/.pioenvs/
+embedded/firmware/**/.piolibdeps/
+
+# Python helper scripts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# KiCad local state and locks
+*.lck
+~*.kicad_pro.lck
+*.kicad_prl
+*.kicad_sch-bak
+*.kicad_pcb-bak
+*-backups/

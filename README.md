@@ -15,6 +15,7 @@ for monitoring and recording tests.
 ```text
 igNYte-LOI-Apparatus/
   embedded/   Firmware, hardware files, validation docs, and apparatus tools
+  mechanical/ Mechanical design docs, CAD exports, assembly notes, and BOMs
   webapp/     Next.js operator dashboard and test-monitoring application
 ```
 
@@ -23,6 +24,7 @@ igNYte-LOI-Apparatus/
 | Path | Contents |
 | --- | --- |
 | [`embedded/`](embedded/) | Former `IgNYte-FPA` repository. Contains the ESP32-P4 sensor-hub firmware, KiCad hardware files, firmware protocol docs, validation notes, OpenCV prototype, and apparatus helper tools. |
+| [`mechanical/`](mechanical/) | Mechanical documentation and future design artifacts for the chamber, frame, sample holder, camera stage, motor mount, assembly process, and mechanical bill of materials. |
 | [`webapp/`](webapp/) | Former `ignyte` repository. Contains the production web dashboard for Web Serial device control, live telemetry, session recording, camera/vision controls, Firebase auth, and user management. |
 
 ## Embedded Apparatus
@@ -55,6 +57,17 @@ pio run -d embedded/firmware/p4-sensor-hub-arduino -e esp32-p4-motor-debug
 The firmware communicates over USB serial at `115200` baud using
 newline-delimited JSON. Commands and telemetry are documented in
 [`embedded/docs/firmware-serial-protocol.md`](embedded/docs/firmware-serial-protocol.md).
+
+## Mechanical
+
+Use [`mechanical/`](mechanical/) for documentation and artifacts tied to the
+physical apparatus: CAD files, exported drawings, assembly notes, mechanical
+BOMs, camera-stage hardware, chamber/frame design, sample-holder details, travel
+limits, alignment notes, and build photos.
+
+Mechanical changes can affect firmware constants, camera tracking behavior, and
+validation results. When the physical stage, chamber, camera payload, or motion
+hardware changes, update the relevant embedded validation and future-work docs.
 
 ## Web Application
 
@@ -129,14 +142,20 @@ git log -- webapp
 
 ## Syncing Source Repositories
 
-While the original repositories remain active, pull their latest changes into
-this monorepo with subtree pulls:
+While the original repositories remain active, sync their latest changes into
+this monorepo with the GitHub Actions workflow:
 
-```powershell
-git subtree pull --prefix=embedded ignyte-fpa main
-git subtree pull --prefix=webapp ignyte-webapp main
-git push origin main
-```
+1. Open the repository on GitHub.
+2. Go to **Actions**.
+3. Select **Sync Source Repos**.
+4. Click **Run workflow**.
+5. Choose the `main` branch.
+6. Click **Run workflow** again to start the sync.
+
+The workflow also runs automatically on its configured schedule. It pulls:
+
+- `embedded/` from `andre-llaneta/IgNYte-FPA`
+- `webapp/` from `ikasturirangan/ignyte`
 
 Do not use `--squash` if the goal is to preserve the full upstream commit
 history.
@@ -144,6 +163,8 @@ history.
 ## Development Notes
 
 - Keep apparatus firmware and hardware work under `embedded/`.
+- Keep mechanical design files, CAD exports, assembly notes, and mechanical BOMs
+  under `mechanical/`.
 - Keep dashboard, auth, database, and browser-side control work under `webapp/`.
 - Update root-level documentation when behavior crosses both parts of the
   system.
