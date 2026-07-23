@@ -57,6 +57,22 @@ The active firmware targets a DFRobot FireBeetle 2 ESP32-P4 mounted on the `moth
 
 The OpenCV.js work in this repo is a standalone prototype used to validate flame segmentation and tracking behavior before or alongside integration into the IgNYte web app.
 
+## System Block Diagram
+
+The apparatus is split into three main layers:
+
+- physical sensors, flow controllers, motor hardware, and the `motherV1` interface board
+- ESP32-P4 firmware that owns sensor polling, motor control, flow commands, and JSONL telemetry
+- host-side tools, including the IgNYte web app, camera/vision tracking, recording, exports, and handoff documentation
+
+![IgNYte-FPA system block diagram](images/system-block-diagram.svg)
+
+The
+firmware and hardware folders document the apparatus-side implementation, while
+the production web app consumes the firmware JSON protocol over Web Serial and
+records telemetry, camera streams, frame exports, and vision metrics for later
+analysis.
+
 ## Firmware
 
 Active firmware path:

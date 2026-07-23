@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="660" viewBox="0 0 1280 660" role="img" aria-labelledby="title desc">
+  <title id="title">IgNYte-FPA System Block Diagram</title>
+  <desc id="desc">Block diagram showing the LOI apparatus sensors and actuators connected through the motherV1 board and ESP32-P4 firmware to the IgNYte web app, cameras, recorded archives, and handoff documentation.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#334155" />
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .band { fill: #eef2ff; stroke: #c7d2fe; stroke-width: 1.5; }
+      .box { fill: #ffffff; stroke: #334155; stroke-width: 2; rx: 10; }
+      .sensor { fill: #ecfeff; stroke: #0891b2; }
+      .actuator { fill: #fff7ed; stroke: #ea580c; }
+      .host { fill: #f0fdf4; stroke: #16a34a; }
+      .doc { fill: #fdf2f8; stroke: #db2777; }
+      .label { fill: #0f172a; font: 700 17px Arial, sans-serif; }
+      .text { fill: #334155; font: 14px Arial, sans-serif; }
+      .small { fill: #475569; font: 12px Arial, sans-serif; }
+      .line { stroke: #334155; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .line-soft { stroke: #64748b; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .dash { stroke-dasharray: 7 6; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="660" />
+
+  <rect class="band" x="38" y="40" width="1204" height="580" rx="18" />
+
+  <g transform="translate(0 -80)">
+
+  <!-- Sensors -->
+  <rect class="box sensor" x="72" y="176" width="210" height="76" rx="10" />
+  <text class="label" x="92" y="207">Thermocouples</text>
+  <text class="text" x="92" y="230">MAX31856, TC1-TC4</text>
+
+  <rect class="box sensor" x="72" y="274" width="210" height="76" rx="10" />
+  <text class="label" x="92" y="305">Environment</text>
+  <text class="text" x="92" y="328">SHT45, BME688</text>
+
+  <rect class="box sensor" x="72" y="372" width="210" height="76" rx="10" />
+  <text class="label" x="92" y="403">Oxygen</text>
+  <text class="text" x="92" y="426">SEN0496 O2 sensor</text>
+
+  <rect class="box sensor" x="72" y="470" width="210" height="76" rx="10" />
+  <text class="label" x="92" y="501">Flow Controllers</text>
+  <text class="text" x="92" y="524">Bronkhorst RS232</text>
+
+  <!-- Board/Firmware -->
+  <rect class="box" x="350" y="246" width="230" height="164" rx="12" />
+  <text class="label" x="376" y="278">motherV1 Interface</text>
+  <text class="text" x="376" y="304">Power distribution</text>
+  <text class="text" x="376" y="326">Sensor breakouts</text>
+  <text class="text" x="376" y="348">RS232 level shifting</text>
+  <text class="text" x="376" y="370">TMC2209 interface</text>
+
+  <rect class="box" x="638" y="224" width="250" height="208" rx="12" />
+  <text class="label" x="664" y="256">ESP32-P4 Firmware</text>
+  <text class="text" x="664" y="284">FreeRTOS tasks</text>
+  <text class="text" x="664" y="306">Sensor polling</text>
+  <text class="text" x="664" y="328">Motor control</text>
+  <text class="text" x="664" y="350">Flow setpoints</text>
+  <text class="text" x="664" y="372">JSONL telemetry</text>
+  <text class="small" x="664" y="404">USB serial at 115200 baud</text>
+
+  <!-- Actuation -->
+  <rect class="box actuator" x="350" y="486" width="230" height="92" rx="10" />
+  <text class="label" x="376" y="520">Vertical Stage</text>
+  <text class="text" x="376" y="544">TMC2209 + stepper</text>
+  <text class="text" x="376" y="566">Camera-stage motion</text>
+
+  <!-- Host/Web -->
+  <rect class="box host" x="952" y="176" width="240" height="142" rx="12" />
+  <text class="label" x="978" y="208">IgNYte Web App</text>
+  <text class="text" x="978" y="236">Web Serial console</text>
+  <text class="text" x="978" y="258">Live telemetry charts</text>
+  <text class="text" x="978" y="280">Motor / flow commands</text>
+  <text class="small" x="978" y="304">Chrome or Edge</text>
+
+  <rect class="box host" x="952" y="352" width="240" height="128" rx="12" />
+  <text class="label" x="978" y="384">Camera / Vision</text>
+  <text class="text" x="978" y="412">RGB flame tracking</text>
+  <text class="text" x="978" y="434">HSI preview capture</text>
+  <text class="text" x="978" y="456">OpenCV mask + overlay</text>
+
+  <rect class="box host" x="952" y="514" width="240" height="134" rx="12" />
+  <text class="label" x="978" y="546">Test Archive</text>
+  <text class="text" x="978" y="574">JSON telemetry</text>
+  <text class="text" x="978" y="596">RGB / HSI WebM</text>
+  <text class="text" x="978" y="618">Frames + vision metrics</text>
+
+  <!-- Docs -->
+  <rect class="box doc" x="638" y="546" width="250" height="102" rx="12" />
+  <text class="label" x="664" y="580">Handoff Docs</text>
+  <text class="text" x="664" y="608">Protocol, validation, errata</text>
+  <text class="text" x="664" y="630">Future work and demo flow</text>
+
+  <!-- Lines from sensors to board -->
+  <path class="line-soft" d="M282 214 H350" />
+  <path class="line-soft" d="M282 312 H350" />
+  <path class="line-soft" d="M282 410 H350" />
+  <path class="line-soft" d="M282 508 H350" />
+
+  <!-- Board/Firmware links -->
+  <path class="line" d="M580 328 H638" />
+  <path class="line" d="M465 486 V410" />
+  <path class="line" d="M580 532 C626 532 626 432 690 432" />
+
+  <!-- Firmware to host -->
+  <path class="line" d="M888 286 H952" />
+  <text class="small" x="897" y="274">JSONL</text>
+  <path class="line" d="M952 246 H888" />
+  <text class="small" x="897" y="236">commands</text>
+
+  <!-- Vision feedback -->
+  <path class="line" d="M952 416 H888" />
+  <text class="small" x="894" y="404">velocity cmd</text>
+  <path class="line-soft dash" d="M1072 352 V318" />
+
+  <!-- Archive flow -->
+  <path class="line" d="M1072 318 V352" />
+  <path class="line" d="M1072 480 V514" />
+  <path class="line-soft" d="M888 596 H952" />
+
+  <!-- Documentation relation -->
+  <path class="line-soft dash" d="M763 546 V432" />
+  <path class="line-soft dash" d="M888 596 H952" />
+  </g>
+</svg>
