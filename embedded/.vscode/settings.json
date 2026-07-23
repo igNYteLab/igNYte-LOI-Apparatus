@@ -1,0 +1,43 @@
+{
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32p4"
+  },
+  "idf.currentSetup": "C:\\esp\\v6.0.1\\esp-idf",
+  "terminal.integrated.defaultProfile.windows": "Command Prompt",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "source": "PowerShell",
+      "icon": "terminal-powershell"
+    },
+    "Command Prompt": {
+      "path": [
+        "${env:windir}\\Sysnative\\cmd.exe",
+        "${env:windir}\\System32\\cmd.exe"
+      ],
+      "args": [
+        "/k",
+        "C:/esp/v6.0.1/esp-idf/export.bat"
+      ],
+      "icon": "terminal-cmd"
+    },
+    "Git Bash": {
+      "source": "Git Bash",
+      "icon": "terminal-git-bash"
+    }
+  },
+  "cmake.sourceDirectory": "C:/Users/llane/OneDrive/Documents/GithubRepos/IgNYte-FPA/firmware/p4-sensor-hub",
+  "idf.buildPathWin": "C:\\Users\\llane\\OneDrive\\Documents\\GithubRepos\\IgNYte-FPA\\firmware\\p4-sensor-hub\\build",
+  "clangd.path": "C:\\Espressif\\tools\\esp-clang\\esp-20.1.1_20250829\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=C:\\Users\\llane\\OneDrive\\Documents\\GithubRepos\\IgNYte-FPA\\firmware\\p4-sensor-hub\\build"
+  ],
+  "python-envs.pythonProjects": [
+    {
+      "path": ".",
+      "envManager": "ms-python.python:system",
+      "packageManager": "ms-python.python:pip"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+# Primary author: Will Andre Pasimio Llaneta (wpl5304)
+# Project: IgNYte-FPA
+# Context: NYU Tandon IgNYte Lab fire propagation apparatus internship work.
+
+name: Firmware and OpenCV JS prototype checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  firmware:
+    name: Firmware PlatformIO build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: platformio-${{ runner.os }}-${{ hashFiles('firmware/p4-sensor-hub-arduino/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: pio run -d firmware/p4-sensor-hub-arduino
+
+      - name: Run firmware unit tests
+        run: pio test -d firmware/p4-sensor-hub-arduino -e native
+
+  camera-prototype:
+    name: OpenCV JS prototype checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check software/camera/opencv-js-prototype/src/app.js
+          node --check software/camera/opencv-js-prototype/src/controller.js
+          node --check software/camera/opencv-js-prototype/src/detector.js
+          node --check software/camera/opencv-js-prototype/src/messages.js
+          node --check software/camera/opencv-js-prototype/src/serial.js
+          node --check software/camera/opencv-js-prototype/src/config.js
