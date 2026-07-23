@@ -58,6 +58,14 @@ The firmware communicates over USB serial at `115200` baud using
 newline-delimited JSON. Commands and telemetry are documented in
 [`embedded/docs/firmware-serial-protocol.md`](embedded/docs/firmware-serial-protocol.md).
 
+## System Block Diagram
+
+The system block diagram shows how the physical apparatus, `motherV1`
+electronics, ESP32-P4 firmware, host web app, camera/vision tools, and exported
+test data fit together.
+
+![IgNYte LOI apparatus system block diagram](embedded/images/system-block-diagram.svg)
+
 ## Mechanical
 
 Use [`mechanical/`](mechanical/) for documentation and artifacts tied to the
@@ -103,24 +111,6 @@ browser served from `localhost` or HTTPS.
 Create `webapp/.env.local` before running against Firebase-backed features. The
 web app expects `NEXT_PUBLIC_FIREBASE_*` values and optional camera stream URLs;
 see [`webapp/README.md`](webapp/README.md) for the current environment details.
-
-## System Flow
-
-```text
-LOI apparatus sensors and actuators
-        |
-        v
-ESP32-P4 firmware in embedded/
-        |
-        v
-JSONL over USB serial at 115200 baud
-        |
-        v
-Next.js dashboard in webapp/
-        |
-        v
-Recorded telemetry, video, vision metrics, and exported test archives
-```
 
 ## Monorepo History
 

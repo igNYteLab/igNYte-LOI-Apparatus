@@ -3,8 +3,8 @@
 This folder is reserved for mechanical documentation and design artifacts for
 the IgNYte LOI apparatus.
 
-Use this area for information that describes the physical test bench rather
-than the electronics, firmware, or web application. Good candidates include:
+This folder shoudl contain information that describes the physical test bench 
+such as:
 
 - chamber, frame, and sample-holder drawings
 - camera-stage and motor-mount CAD files
