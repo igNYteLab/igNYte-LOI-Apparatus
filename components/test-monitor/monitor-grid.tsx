@@ -28,7 +28,10 @@ import {
   CameraCard,
   type CameraController,
 } from "@/components/test-monitor/camera-card"
-import { VisionPanel } from "@/components/vision/vision-panel"
+import {
+  VisionPanel,
+  type VisionPanelController,
+} from "@/components/vision/vision-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -188,6 +191,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
 
   const rgbCameraRef = React.useRef<CameraController | null>(null)
   const hsiCameraRef = React.useRef<CameraController | null>(null)
+  const visionPanelRef = React.useRef<VisionPanelController | null>(null)
   const rgbRecorderRef = React.useRef<MediaRecorder | null>(null)
   const hsiRecorderRef = React.useRef<MediaRecorder | null>(null)
   const rgbChunksRef = React.useRef<Blob[]>([])
@@ -407,6 +411,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       rgbRecorderRef.current = rgbRecorder
       hsiRecorderRef.current = hsiRecorder
       pendingRecorderStopsRef.current = 2
+      visionPanelRef.current?.startExportCapture(startPerfMs)
       startLiveFrameFallback(timestampLabel, startPerfMs)
       rgbRecorder.start(1000)
       hsiRecorder.start(1000)
@@ -418,6 +423,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       stopLiveFrameFallback()
       rgbCameraRef.current?.stopRecordingCapture()
       hsiCameraRef.current?.stopRecordingCapture()
+      visionPanelRef.current?.clearExportCapture()
       setRecording(false)
       toast.error(message)
       rgbRecorderRef.current = null
@@ -497,6 +503,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     // eslint-disable-next-line react-hooks/purity -- Event-handler timestamp for the run stop.
     const stopMs = Date.now()
     stopLiveFrameFallback()
+    void visionPanelRef.current?.stopExportCapture()
     setSessionStoppedAt(new Date(stopMs).toISOString())
     setSaveName(
       runBaseName ||
@@ -523,6 +530,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     frameCounterRef.current = 0
     pendingRecorderStopsRef.current = 0
     sessionStartPerfMsRef.current = null
+    visionPanelRef.current?.clearExportCapture()
     setRecording(false)
     setSessionStartMs(null)
     setSessionStartPerfMs(null)
@@ -592,10 +600,20 @@ export function MonitorGrid({ context }: MonitorGridProps) {
     const safeName = sanitizeArchiveName(saveName)
     const rgbVideoFile = rgbVideoBlob ? `${safeName}-rgb.webm` : null
     const hsiVideoFile = hsiVideoBlob ? `${safeName}-hsi.webm` : null
+    const visionMetricsFile = "vision/tracking-metrics.json"
     const videoFile = hsiVideoFile ?? rgbVideoFile
     const videoError = [rgbVideoError, hsiVideoError]
       .filter(Boolean)
       .join(" | ")
+    const visionCapture = await (visionPanelRef.current?.getExportCapture() ??
+      Promise.resolve({
+        metrics: [],
+        overlayVideoBlob: null,
+        overlayVideoError: "Vision tracker panel was not mounted.",
+      }))
+    const visionOverlayVideoFile = visionCapture.overlayVideoBlob
+      ? "vision/flame-tracking-overlay.webm"
+      : null
     let frames: CapturedFrame[]
     const fallbackFrames = capturedFramesRef.current
     const fallbackDurationSeconds = Math.max(
@@ -671,6 +689,10 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       hsiVideoError,
       frameSource: "hsi" as const,
       frameSourceVideoFile: hsiVideoFile,
+      visionMetricsFile,
+      visionOverlayVideoFile,
+      visionOverlayVideoError: visionCapture.overlayVideoError,
+      visionMetricCount: visionCapture.metrics.length,
       framesDirectory: "frames",
     }
     const entry: TestArchiveEntry = {
@@ -684,13 +706,39 @@ export function MonitorGrid({ context }: MonitorGridProps) {
       null,
       2
     )
+    const visionMetricsContent = JSON.stringify(
+      {
+        meta: {
+          runId: safeName,
+          psetId,
+          startedAt: sessionStartedAt,
+          stoppedAt: sessionStoppedAt,
+          durationSeconds: sessionDurationSeconds,
+          metricCount: visionCapture.metrics.length,
+          overlayVideoFile: visionOverlayVideoFile,
+          overlayVideoError: visionCapture.overlayVideoError,
+        },
+        metrics: visionCapture.metrics,
+      },
+      null,
+      2
+    )
     const zipEntries = [
       { path: `${safeName}.json`, data: jsonContent },
+      { path: visionMetricsFile, data: visionMetricsContent },
       ...(rgbVideoBlob && rgbVideoFile
         ? [{ path: rgbVideoFile, data: rgbVideoBlob }]
         : []),
       ...(hsiVideoBlob && hsiVideoFile
         ? [{ path: hsiVideoFile, data: hsiVideoBlob }]
+        : []),
+      ...(visionCapture.overlayVideoBlob && visionOverlayVideoFile
+        ? [
+            {
+              path: visionOverlayVideoFile,
+              data: visionCapture.overlayVideoBlob,
+            },
+          ]
         : []),
       ...frames.map((frame) => ({
         path: `frames/${frame.filename}`,
@@ -981,6 +1029,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
               </Card>
 
               <VisionPanel
+                ref={visionPanelRef}
                 connected={connected}
                 sendCommand={sendCommand}
                 disableRef={visionDisableRef}
@@ -1315,6 +1364,7 @@ export function MonitorGrid({ context }: MonitorGridProps) {
 
         <TabsContent value="vision" className="min-h-0 overflow-auto">
           <VisionPanel
+            ref={visionPanelRef}
             connected={connected}
             sendCommand={sendCommand}
             disableRef={visionDisableRef}

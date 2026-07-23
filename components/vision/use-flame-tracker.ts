@@ -21,7 +21,10 @@ import {
   type Recommendation,
 } from "@/lib/vision/controller"
 import type { Detection } from "@/lib/vision/detector"
-import { buildTrackingMessage, type TrackingMessage } from "@/lib/vision/messages"
+import {
+  buildTrackingMessage,
+  type TrackingMessage,
+} from "@/lib/vision/messages"
 import type { VisionRuntime } from "@/lib/vision/opencv-types"
 
 // If the process loop hasn't produced a fresh frame within this window, the
@@ -46,6 +49,30 @@ export type TrackerStatus = {
   message: TrackingMessage | null
 }
 
+export type VisionTrackingMetric = {
+  elapsedMs: number
+  tHostMs: number
+  frameId: number
+  tracking: boolean
+  confidence: number
+  frameWidthPx: number
+  frameHeightPx: number
+  setpointYPx: number
+  setpointYNorm: number
+  errorYPx: number | null
+  targetBottomXPx: number | null
+  targetBottomYPx: number | null
+  targetAreaPx: number | null
+  recommendedVelocityMmS: number
+  processedFps: number
+}
+
+export type VisionExportCapture = {
+  metrics: VisionTrackingMetric[]
+  overlayVideoBlob: Blob | null
+  overlayVideoError: string | null
+}
+
 /** Recommendation → a `motor.velocity_mm_s` command (null ⇒ 0, i.e. stop). */
 function velocityCommand(rec: Recommendation): string {
   return fw.motorVelocity(rec ? rec.velocity_mm_s : 0)
@@ -55,7 +82,7 @@ function drawOverlay(
   canvas: HTMLCanvasElement | null,
   sourceCanvas: HTMLCanvasElement,
   detection: Detection,
-  setpointYPx: number,
+  setpointYPx: number
 ) {
   if (!canvas) return
   if (canvas.width !== sourceCanvas.width) canvas.width = sourceCanvas.width
@@ -81,7 +108,7 @@ function drawOverlay(
     detection.bbox.x,
     detection.bbox.y,
     detection.bbox.width,
-    detection.bbox.height,
+    detection.bbox.height
   )
 
   // Contour.
@@ -90,7 +117,7 @@ function drawOverlay(
     ctx.lineWidth = 1.5
     ctx.beginPath()
     detection.contour.forEach((p, i) =>
-      i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y),
+      i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)
     )
     ctx.closePath()
     ctx.stroke()
@@ -114,7 +141,8 @@ function cameraReport(track: MediaStreamTrack | null) {
   if (!track) return "Camera not started."
   const capabilities =
     typeof track.getCapabilities === "function" ? track.getCapabilities() : {}
-  const settings = typeof track.getSettings === "function" ? track.getSettings() : {}
+  const settings =
+    typeof track.getSettings === "function" ? track.getSettings() : {}
   return JSON.stringify({ settings, capabilities }, null, 2)
 }
 
@@ -125,6 +153,16 @@ function drawMask(canvas: HTMLCanvasElement | null, mask: ImageData) {
   const ctx = canvas.getContext("2d")
   if (!ctx) return
   ctx.putImageData(mask, 0, 0)
+}
+
+function preferredOverlayRecorderMimeType() {
+  if (typeof MediaRecorder === "undefined") return ""
+  const candidates = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ]
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? ""
 }
 
 export function useFlameTracker(params: {
@@ -138,14 +176,18 @@ export function useFlameTracker(params: {
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const [config, setConfig] = useState<VisionConfig>(() =>
-    normalizeVisionConfig(DEFAULT_VISION_CONFIG),
+    normalizeVisionConfig(DEFAULT_VISION_CONFIG)
   )
   const normalizedConfig = normalizeVisionConfig(config)
   const [running, setRunning] = useState(false)
   const [autoControl, setAutoControl] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
-  const [cameraControlError, setCameraControlError] = useState<string | null>(null)
-  const [cameraReportText, setCameraReportText] = useState("Camera not started.")
+  const [cameraControlError, setCameraControlError] = useState<string | null>(
+    null
+  )
+  const [cameraReportText, setCameraReportText] = useState(
+    "Camera not started."
+  )
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([])
   const [cameraDeviceId, setCameraDeviceId] = useState("")
   const [status, setStatus] = useState<TrackerStatus>({
@@ -183,6 +225,13 @@ export function useFlameTracker(params: {
   const controllerStateRef = useRef<ControllerState>(resetControllerState())
   const emaFpsRef = useRef(0)
   const autoSendBusyRef = useRef(false)
+  const exportStartPerfMsRef = useRef<number | null>(null)
+  const exportMetricsRef = useRef<VisionTrackingMetric[]>([])
+  const overlayRecorderRef = useRef<MediaRecorder | null>(null)
+  const overlayChunksRef = useRef<Blob[]>([])
+  const overlayVideoBlobRef = useRef<Blob | null>(null)
+  const overlayVideoErrorRef = useRef<string | null>(null)
+  const overlayStopPromiseRef = useRef<Promise<void> | null>(null)
   const latestRef = useRef<{
     atMs: number
     detection: Detection | null
@@ -193,6 +242,99 @@ export function useFlameTracker(params: {
     setCameraReportText(cameraReport(activeTrackRef.current))
   }, [])
 
+  const startExportCapture = useCallback(
+    (startPerfMs: number, overlayFps = 15) => {
+      exportStartPerfMsRef.current = startPerfMs
+      exportMetricsRef.current = []
+      overlayChunksRef.current = []
+      overlayVideoBlobRef.current = null
+      overlayVideoErrorRef.current = null
+      overlayStopPromiseRef.current = null
+
+      const canvas = overlayCanvasRef.current
+      if (!runningRef.current) {
+        overlayVideoErrorRef.current = "Vision tracker was not running."
+        return
+      }
+      if (!canvas || !canvas.width || !canvas.height) {
+        overlayVideoErrorRef.current = "Vision overlay canvas was not ready."
+        return
+      }
+      if (typeof MediaRecorder === "undefined" || !canvas.captureStream) {
+        overlayVideoErrorRef.current =
+          "Overlay video recording is unavailable in this browser."
+        return
+      }
+
+      try {
+        const stream = canvas.captureStream(Math.max(1, overlayFps))
+        const mimeType = preferredOverlayRecorderMimeType()
+        const recorder = new MediaRecorder(
+          stream,
+          mimeType ? { mimeType } : undefined
+        )
+        overlayRecorderRef.current = recorder
+        overlayStopPromiseRef.current = new Promise<void>((resolve) => {
+          recorder.ondataavailable = (event) => {
+            if (event.data.size > 0) overlayChunksRef.current.push(event.data)
+          }
+          recorder.onerror = () => {
+            overlayVideoErrorRef.current = "Overlay video recorder failed."
+          }
+          recorder.onstop = () => {
+            overlayVideoBlobRef.current = overlayChunksRef.current.length
+              ? new Blob(overlayChunksRef.current, {
+                  type: recorder.mimeType || "video/webm",
+                })
+              : null
+            stream.getTracks().forEach((track) => track.stop())
+            overlayRecorderRef.current = null
+            resolve()
+          }
+        })
+        recorder.start(1000)
+      } catch (err) {
+        overlayVideoErrorRef.current =
+          err instanceof Error ? err.message : "Overlay video recording failed."
+        overlayRecorderRef.current = null
+      }
+    },
+    []
+  )
+
+  const stopExportCapture = useCallback(async () => {
+    const recorder = overlayRecorderRef.current
+    const stopPromise = overlayStopPromiseRef.current
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop()
+      await stopPromise
+      return
+    }
+    if (stopPromise) await stopPromise
+  }, [])
+
+  const getExportCapture =
+    useCallback(async (): Promise<VisionExportCapture> => {
+      await stopExportCapture()
+      return {
+        metrics: [...exportMetricsRef.current],
+        overlayVideoBlob: overlayVideoBlobRef.current,
+        overlayVideoError: overlayVideoErrorRef.current,
+      }
+    }, [stopExportCapture])
+
+  const clearExportCapture = useCallback(() => {
+    if (overlayRecorderRef.current?.state === "recording") {
+      overlayRecorderRef.current.stop()
+    }
+    exportStartPerfMsRef.current = null
+    exportMetricsRef.current = []
+    overlayChunksRef.current = []
+    overlayVideoBlobRef.current = null
+    overlayVideoErrorRef.current = null
+    overlayStopPromiseRef.current = null
+  }, [])
+
   const enumerateCameraDevices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) {
       setCameraDevices([])
@@ -200,10 +342,15 @@ export function useFlameTracker(params: {
     }
     try {
       const devices = await navigator.mediaDevices.enumerateDevices()
-      const videoDevices = devices.filter((device) => device.kind === "videoinput")
+      const videoDevices = devices.filter(
+        (device) => device.kind === "videoinput"
+      )
       setCameraDevices(videoDevices)
       setCameraDeviceId((current) => {
-        if (current && videoDevices.some((device) => device.deviceId === current)) {
+        if (
+          current &&
+          videoDevices.some((device) => device.deviceId === current)
+        ) {
           return current
         }
         return videoDevices[0]?.deviceId ?? ""
@@ -215,11 +362,14 @@ export function useFlameTracker(params: {
 
   useEffect(() => {
     void enumerateCameraDevices()
-    navigator.mediaDevices?.addEventListener?.("devicechange", enumerateCameraDevices)
+    navigator.mediaDevices?.addEventListener?.(
+      "devicechange",
+      enumerateCameraDevices
+    )
     return () => {
       navigator.mediaDevices?.removeEventListener?.(
         "devicechange",
-        enumerateCameraDevices,
+        enumerateCameraDevices
       )
     }
   }, [enumerateCameraDevices])
@@ -228,7 +378,11 @@ export function useFlameTracker(params: {
   useEffect(() => {
     const hz = Math.max(1, normalizedConfig.controller.autoControlHz)
     const id = window.setInterval(() => {
-      if (!autoRef.current || !connectedRef.current || autoSendBusyRef.current) {
+      if (
+        !autoRef.current ||
+        !connectedRef.current ||
+        autoSendBusyRef.current
+      ) {
         return
       }
       const now = performance.now()
@@ -242,11 +396,12 @@ export function useFlameTracker(params: {
           : null
       autoSendBusyRef.current = true
       const commandedMmS = rec ? rec.velocity_mm_s : 0
-      void sendRef.current(velocityCommand(rec))
+      void sendRef
+        .current(velocityCommand(rec))
         .then(() => {
           controllerStateRef.current = noteCommandedVelocity(
             controllerStateRef.current,
-            commandedMmS,
+            commandedMmS
           )
         })
         .catch(() => {})
@@ -274,11 +429,11 @@ export function useFlameTracker(params: {
 
     const analysisWidth = Math.max(
       1,
-      Math.min(cfg.camera.analysisWidthPx, video.videoWidth),
+      Math.min(cfg.camera.analysisWidthPx, video.videoWidth)
     )
     const analysisHeight = Math.max(
       1,
-      Math.min(cfg.camera.analysisHeightPx, video.videoHeight),
+      Math.min(cfg.camera.analysisHeightPx, video.videoHeight)
     )
     if (frame.width !== analysisWidth) frame.width = analysisWidth
     if (frame.height !== analysisHeight) frame.height = analysisHeight
@@ -300,14 +455,14 @@ export function useFlameTracker(params: {
                 frame.height,
                 cfg.controller,
                 controllerStateRef.current,
-                now,
+                now
               )
             : computePRecommendation(
                 detection,
                 frame.height,
                 cfg.controller,
                 controllerStateRef.current,
-                now,
+                now
               )
         controllerStateRef.current = result.controllerState
 
@@ -329,13 +484,19 @@ export function useFlameTracker(params: {
           recommendation: result.recommendation,
         }
 
-        drawOverlay(overlayCanvasRef.current, frame, detection, result.setpointYPx)
+        drawOverlay(
+          overlayCanvasRef.current,
+          frame,
+          detection,
+          result.setpointYPx
+        )
         if (mask) drawMask(maskCanvasRef.current, mask)
 
         const instFps = sinceLast > 0 ? 1000 / sinceLast : 0
         emaFpsRef.current = emaFpsRef.current
           ? emaFpsRef.current * 0.8 + instFps * 0.2
           : instFps
+        appendExportMetric(message, emaFpsRef.current)
 
         // Throttle React status updates (~5 Hz) so the control panel doesn't
         // re-render on every processed frame; the canvases already drew above.
@@ -354,13 +515,35 @@ export function useFlameTracker(params: {
       })
       .catch((err: unknown) => {
         setCameraError(
-          err instanceof Error ? err.message : "Vision worker detection failed",
+          err instanceof Error ? err.message : "Vision worker detection failed"
         )
       })
       .finally(() => {
         processBusyRef.current = false
       })
   }, [])
+
+  function appendExportMetric(message: TrackingMessage, processedFps: number) {
+    const startPerfMs = exportStartPerfMsRef.current
+    if (startPerfMs === null) return
+    exportMetricsRef.current.push({
+      elapsedMs: Math.round((message.t_host_ms - startPerfMs) * 1000) / 1000,
+      tHostMs: message.t_host_ms,
+      frameId: message.frame_id,
+      tracking: message.tracking,
+      confidence: message.confidence,
+      frameWidthPx: message.frame_width_px,
+      frameHeightPx: message.frame_height_px,
+      setpointYPx: message.setpoint.y_px,
+      setpointYNorm: message.setpoint.y_norm,
+      errorYPx: message.error.y_px,
+      targetBottomXPx: message.target?.bottom_x_px ?? null,
+      targetBottomYPx: message.target?.bottom_y_px ?? null,
+      targetAreaPx: message.target?.area_px ?? null,
+      recommendedVelocityMmS: message.recommendation?.velocity_mm_s ?? 0,
+      processedFps: Math.round(processedFps * 1000) / 1000,
+    })
+  }
 
   // Drive processing with requestAnimationFrame while the camera runs.
   useEffect(() => {
@@ -377,7 +560,9 @@ export function useFlameTracker(params: {
     setCameraError(null)
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Camera API unavailable — use Chrome/Edge over HTTPS or localhost.")
+        throw new Error(
+          "Camera API unavailable — use Chrome/Edge over HTTPS or localhost."
+        )
       }
       const cam = configRef.current.camera
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -402,7 +587,9 @@ export function useFlameTracker(params: {
       runningRef.current = true
       setRunning(true)
     } catch (err) {
-      setCameraError(err instanceof Error ? err.message : "Failed to start camera")
+      setCameraError(
+        err instanceof Error ? err.message : "Failed to start camera"
+      )
       runningRef.current = false
       setRunning(false)
     }
@@ -411,6 +598,9 @@ export function useFlameTracker(params: {
   const stopCamera = useCallback(() => {
     runningRef.current = false
     setRunning(false)
+    if (overlayRecorderRef.current?.state === "recording") {
+      overlayRecorderRef.current.stop()
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
     activeTrackRef.current = null
@@ -421,7 +611,8 @@ export function useFlameTracker(params: {
     latestRef.current = { atMs: 0, detection: null, recommendation: null }
     // Safety: stopping the camera stops auto motion.
     if (autoRef.current) {
-      if (connectedRef.current) void sendRef.current(velocityCommand(null)).catch(() => {})
+      if (connectedRef.current)
+        void sendRef.current(velocityCommand(null)).catch(() => {})
       autoRef.current = false
       setAutoControl(false)
     }
@@ -435,7 +626,8 @@ export function useFlameTracker(params: {
       autoRef.current = true
       setAutoControl(true)
     } else {
-      if (connectedRef.current) void sendRef.current(velocityCommand(null)).catch(() => {})
+      if (connectedRef.current)
+        void sendRef.current(velocityCommand(null)).catch(() => {})
       controllerStateRef.current = resetControllerState()
       autoRef.current = false
       setAutoControl(false)
@@ -454,11 +646,12 @@ export function useFlameTracker(params: {
         ? latest.recommendation
         : null
     const commandedMmS = rec ? rec.velocity_mm_s : 0
-    void sendRef.current(velocityCommand(rec))
+    void sendRef
+      .current(velocityCommand(rec))
       .then(() => {
         controllerStateRef.current = noteCommandedVelocity(
           controllerStateRef.current,
-          commandedMmS,
+          commandedMmS
         )
       })
       .catch(() => {})
@@ -479,7 +672,9 @@ export function useFlameTracker(params: {
     async (values: CameraConstraintValues) => {
       const track = activeTrackRef.current
       if (!track?.applyConstraints) {
-        setCameraControlError("Camera constraints are unavailable for this source.")
+        setCameraControlError(
+          "Camera constraints are unavailable for this source."
+        )
         return
       }
 
@@ -500,13 +695,13 @@ export function useFlameTracker(params: {
         setCameraControlError(null)
       } catch (err) {
         setCameraControlError(
-          err instanceof Error ? err.message : "Failed to apply camera controls",
+          err instanceof Error ? err.message : "Failed to apply camera controls"
         )
       } finally {
         setCameraReportText(cameraReport(track))
       }
     },
-    [],
+    []
   )
 
   /** Called by the E-STOP: just drop auto control (E-STOP already halts motion). */
@@ -517,31 +712,28 @@ export function useFlameTracker(params: {
   }, [])
 
   // ---- Config patchers ------------------------------------------------------
-  const patchController = useCallback(
-    (partial: Partial<ControllerOptions>) => {
-      const state = controllerStateRef.current
-      controllerStateRef.current = resetControllerState(
-        null,
-        state.lastCommandedMmS,
-        state.estimatedAppliedMmS,
-      )
-      setConfig((c) => {
-        const normalized = normalizeVisionConfig(c)
-        return {
-          ...normalized,
-          controller: { ...normalized.controller, ...partial },
-        }
-      })
-    },
-    [],
-  )
+  const patchController = useCallback((partial: Partial<ControllerOptions>) => {
+    const state = controllerStateRef.current
+    controllerStateRef.current = resetControllerState(
+      null,
+      state.lastCommandedMmS,
+      state.estimatedAppliedMmS
+    )
+    setConfig((c) => {
+      const normalized = normalizeVisionConfig(c)
+      return {
+        ...normalized,
+        controller: { ...normalized.controller, ...partial },
+      }
+    })
+  }, [])
   const patchCamera = useCallback(
     (partial: Partial<CameraOptions>) =>
       setConfig((c) => {
         const normalized = normalizeVisionConfig(c)
         return { ...normalized, camera: { ...normalized.camera, ...partial } }
       }),
-    [],
+    []
   )
   const patchDetector = useCallback(
     (partial: Partial<DetectorOptions>) =>
@@ -552,13 +744,16 @@ export function useFlameTracker(params: {
           detector: { ...normalized.detector, ...partial },
         }
       }),
-    [],
+    []
   )
 
   // ---- Unmount cleanup ------------------------------------------------------
   useEffect(() => {
     return () => {
       runningRef.current = false
+      if (overlayRecorderRef.current?.state === "recording") {
+        overlayRecorderRef.current.stop()
+      }
       streamRef.current?.getTracks().forEach((t) => t.stop())
       if (autoRef.current && connectedRef.current) {
         void sendRef.current(velocityCommand(null)).catch(() => {})
@@ -586,6 +781,10 @@ export function useFlameTracker(params: {
     status,
     startCamera,
     stopCamera,
+    startExportCapture,
+    stopExportCapture,
+    getExportCapture,
+    clearExportCapture,
     setAutoControlOn,
     sendOnce,
     calibrate,

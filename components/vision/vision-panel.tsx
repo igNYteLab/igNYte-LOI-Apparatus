@@ -1,11 +1,7 @@
 "use client"
 
 import * as React from "react"
-import {
-  IconCamera,
-  IconCameraOff,
-  IconTargetArrow,
-} from "@tabler/icons-react"
+import { IconCamera, IconCameraOff, IconTargetArrow } from "@tabler/icons-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,8 +27,16 @@ import type { ControllerMode } from "@/lib/vision/config"
 import {
   useFlameTracker,
   type CameraConstraintValues,
+  type VisionExportCapture,
 } from "@/components/vision/use-flame-tracker"
 import { useOpenCv } from "@/components/vision/use-opencv"
+
+export type VisionPanelController = {
+  startExportCapture: (startPerfMs: number, overlayFps?: number) => void
+  stopExportCapture: () => Promise<void>
+  getExportCapture: () => Promise<VisionExportCapture>
+  clearExportCapture: () => void
+}
 
 function NumField({
   label,
@@ -71,15 +75,18 @@ function NumField({
   )
 }
 
-function VisionPanelComponent({
-  connected,
-  sendCommand,
-  disableRef,
-}: {
-  connected: boolean
-  sendCommand: (command: string) => Promise<void>
-  disableRef: React.MutableRefObject<(() => void) | null>
-}) {
+function VisionPanelComponent(
+  {
+    connected,
+    sendCommand,
+    disableRef,
+  }: {
+    connected: boolean
+    sendCommand: (command: string) => Promise<void>
+    disableRef: React.MutableRefObject<(() => void) | null>
+  },
+  ref: React.ForwardedRef<VisionPanelController>
+) {
   const {
     cv,
     status: cvStatus,
@@ -107,6 +114,22 @@ function VisionPanelComponent({
     maskCanvasRef,
   } = tracker
 
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      startExportCapture: tracker.startExportCapture,
+      stopExportCapture: tracker.stopExportCapture,
+      getExportCapture: tracker.getExportCapture,
+      clearExportCapture: tracker.clearExportCapture,
+    }),
+    [
+      tracker.startExportCapture,
+      tracker.stopExportCapture,
+      tracker.getExportCapture,
+      tracker.clearExportCapture,
+    ]
+  )
+
   // Let the E-STOP (in the parent) drop auto control instantly.
   React.useEffect(() => {
     disableRef.current = tracker.disableAutoControl
@@ -132,13 +155,15 @@ function VisionPanelComponent({
     (patch: Partial<CameraConstraintValues>) => {
       setCameraControls((current) => ({ ...current, ...patch }))
     },
-    [],
+    []
   )
 
   const applyCameraControls = React.useCallback(() => {
     void tracker.applyCameraConstraints({
       exposureMode:
-        cameraControls.exposureMode === "none" ? "" : cameraControls.exposureMode,
+        cameraControls.exposureMode === "none"
+          ? ""
+          : cameraControls.exposureMode,
       exposureTime: cameraControls.exposureTime,
       whiteBalanceMode:
         cameraControls.whiteBalanceMode === "none"
@@ -180,7 +205,9 @@ function VisionPanelComponent({
                 : "no target"}
             </Badge>
             {running ? (
-              <Badge variant="secondary">{status.processedFps.toFixed(1)} fps</Badge>
+              <Badge variant="secondary">
+                {status.processedFps.toFixed(1)} fps
+              </Badge>
             ) : null}
             {autoControl ? (
               <Badge variant="destructive" className="animate-pulse">
@@ -205,7 +232,9 @@ function VisionPanelComponent({
             <Metric label="Setpoint y" value={status.setpointYPx} />
           </div>
           <div>
-            <div className="text-muted-foreground mb-1 text-xs">Orange/yellow mask</div>
+            <div className="mb-1 text-xs text-muted-foreground">
+              Orange/yellow mask
+            </div>
             <div className="overflow-hidden rounded-md border bg-black/40">
               <canvas ref={maskCanvasRef} className="h-auto w-full" />
             </div>
@@ -264,7 +293,9 @@ function VisionPanelComponent({
                 disabled={cvStatus === "loading"}
                 onClick={() => loadCv()}
               >
-                {cvStatus === "loading" ? "Loading OpenCV…" : "Load vision engine"}
+                {cvStatus === "loading"
+                  ? "Loading OpenCV…"
+                  : "Load vision engine"}
               </Button>
             )}
             <Button
@@ -288,9 +319,9 @@ function VisionPanelComponent({
           <div className="flex items-center justify-between rounded-md border p-2">
             <div>
               <div className="text-sm font-medium">Auto control</div>
-              <div className="text-muted-foreground text-xs">
-                Sends velocity at {ctrl.autoControlHz} Hz · confidence-gated · 0 on
-                loss
+              <div className="text-xs text-muted-foreground">
+                Sends velocity at {ctrl.autoControlHz} Hz · confidence-gated · 0
+                on loss
               </div>
             </div>
             <Switch
@@ -374,7 +405,9 @@ function VisionPanelComponent({
               <Select
                 value={cameraControls.exposureMode}
                 disabled={!running}
-                onValueChange={(value) => setCameraControl({ exposureMode: value })}
+                onValueChange={(value) =>
+                  setCameraControl({ exposureMode: value })
+                }
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -465,7 +498,9 @@ function VisionPanelComponent({
             <Label className="text-xs">Mode</Label>
             <Select
               value={ctrl.mode}
-              onValueChange={(v) => patchController({ mode: v as ControllerMode })}
+              onValueChange={(v) =>
+                patchController({ mode: v as ControllerMode })
+              }
             >
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -479,7 +514,7 @@ function VisionPanelComponent({
           <div className="flex items-center justify-between rounded-md border p-2">
             <div>
               <div className="text-sm font-medium">Feedforward</div>
-              <div className="text-muted-foreground text-xs">
+              <div className="text-xs text-muted-foreground">
                 Adds image-velocity compensation to the feedback command.
               </div>
             </div>
@@ -559,7 +594,9 @@ function VisionPanelComponent({
               step={2}
               min={-1}
               max={1}
-              onChange={(v) => patchController({ controlSign: v >= 0 ? 1 : -1 })}
+              onChange={(v) =>
+                patchController({ controlSign: v >= 0 ? 1 : -1 })
+              }
             />
             <NumField
               label="Max vel (mm/s)"
@@ -596,12 +633,70 @@ function VisionPanelComponent({
                 Bright low-saturation flame
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <NumField label="H low" value={det.brightHsvLow.h} min={0} max={180} onChange={(v) => patchDetector({ brightHsvLow: { ...det.brightHsvLow, h: v } })} />
-                <NumField label="S low" value={det.brightHsvLow.s} min={0} max={255} onChange={(v) => patchDetector({ brightHsvLow: { ...det.brightHsvLow, s: v } })} />
-                <NumField label="V low" value={det.brightHsvLow.v} min={0} max={255} onChange={(v) => patchDetector({ brightHsvLow: { ...det.brightHsvLow, v } })} />
-                <NumField label="H high" value={det.brightHsvHigh.h} min={0} max={180} onChange={(v) => patchDetector({ brightHsvHigh: { ...det.brightHsvHigh, h: v } })} />
-                <NumField label="S high" value={det.brightHsvHigh.s} min={0} max={255} onChange={(v) => patchDetector({ brightHsvHigh: { ...det.brightHsvHigh, s: v } })} />
-                <NumField label="V high" value={det.brightHsvHigh.v} min={0} max={255} onChange={(v) => patchDetector({ brightHsvHigh: { ...det.brightHsvHigh, v } })} />
+                <NumField
+                  label="H low"
+                  value={det.brightHsvLow.h}
+                  min={0}
+                  max={180}
+                  onChange={(v) =>
+                    patchDetector({
+                      brightHsvLow: { ...det.brightHsvLow, h: v },
+                    })
+                  }
+                />
+                <NumField
+                  label="S low"
+                  value={det.brightHsvLow.s}
+                  min={0}
+                  max={255}
+                  onChange={(v) =>
+                    patchDetector({
+                      brightHsvLow: { ...det.brightHsvLow, s: v },
+                    })
+                  }
+                />
+                <NumField
+                  label="V low"
+                  value={det.brightHsvLow.v}
+                  min={0}
+                  max={255}
+                  onChange={(v) =>
+                    patchDetector({ brightHsvLow: { ...det.brightHsvLow, v } })
+                  }
+                />
+                <NumField
+                  label="H high"
+                  value={det.brightHsvHigh.h}
+                  min={0}
+                  max={180}
+                  onChange={(v) =>
+                    patchDetector({
+                      brightHsvHigh: { ...det.brightHsvHigh, h: v },
+                    })
+                  }
+                />
+                <NumField
+                  label="S high"
+                  value={det.brightHsvHigh.s}
+                  min={0}
+                  max={255}
+                  onChange={(v) =>
+                    patchDetector({
+                      brightHsvHigh: { ...det.brightHsvHigh, s: v },
+                    })
+                  }
+                />
+                <NumField
+                  label="V high"
+                  value={det.brightHsvHigh.v}
+                  min={0}
+                  max={255}
+                  onChange={(v) =>
+                    patchDetector({
+                      brightHsvHigh: { ...det.brightHsvHigh, v },
+                    })
+                  }
+                />
               </div>
             </div>
             <div>
@@ -609,17 +704,89 @@ function VisionPanelComponent({
                 Colored orange/yellow flame
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <NumField label="H low" value={det.coloredHsvLow.h} min={0} max={180} onChange={(v) => patchDetector({ coloredHsvLow: { ...det.coloredHsvLow, h: v } })} />
-                <NumField label="S low" value={det.coloredHsvLow.s} min={0} max={255} onChange={(v) => patchDetector({ coloredHsvLow: { ...det.coloredHsvLow, s: v } })} />
-                <NumField label="V low" value={det.coloredHsvLow.v} min={0} max={255} onChange={(v) => patchDetector({ coloredHsvLow: { ...det.coloredHsvLow, v } })} />
-                <NumField label="H high" value={det.coloredHsvHigh.h} min={0} max={180} onChange={(v) => patchDetector({ coloredHsvHigh: { ...det.coloredHsvHigh, h: v } })} />
-                <NumField label="S high" value={det.coloredHsvHigh.s} min={0} max={255} onChange={(v) => patchDetector({ coloredHsvHigh: { ...det.coloredHsvHigh, s: v } })} />
-                <NumField label="V high" value={det.coloredHsvHigh.v} min={0} max={255} onChange={(v) => patchDetector({ coloredHsvHigh: { ...det.coloredHsvHigh, v } })} />
+                <NumField
+                  label="H low"
+                  value={det.coloredHsvLow.h}
+                  min={0}
+                  max={180}
+                  onChange={(v) =>
+                    patchDetector({
+                      coloredHsvLow: { ...det.coloredHsvLow, h: v },
+                    })
+                  }
+                />
+                <NumField
+                  label="S low"
+                  value={det.coloredHsvLow.s}
+                  min={0}
+                  max={255}
+                  onChange={(v) =>
+                    patchDetector({
+                      coloredHsvLow: { ...det.coloredHsvLow, s: v },
+                    })
+                  }
+                />
+                <NumField
+                  label="V low"
+                  value={det.coloredHsvLow.v}
+                  min={0}
+                  max={255}
+                  onChange={(v) =>
+                    patchDetector({
+                      coloredHsvLow: { ...det.coloredHsvLow, v },
+                    })
+                  }
+                />
+                <NumField
+                  label="H high"
+                  value={det.coloredHsvHigh.h}
+                  min={0}
+                  max={180}
+                  onChange={(v) =>
+                    patchDetector({
+                      coloredHsvHigh: { ...det.coloredHsvHigh, h: v },
+                    })
+                  }
+                />
+                <NumField
+                  label="S high"
+                  value={det.coloredHsvHigh.s}
+                  min={0}
+                  max={255}
+                  onChange={(v) =>
+                    patchDetector({
+                      coloredHsvHigh: { ...det.coloredHsvHigh, s: v },
+                    })
+                  }
+                />
+                <NumField
+                  label="V high"
+                  value={det.coloredHsvHigh.v}
+                  min={0}
+                  max={255}
+                  onChange={(v) =>
+                    patchDetector({
+                      coloredHsvHigh: { ...det.coloredHsvHigh, v },
+                    })
+                  }
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <NumField label="Min area" value={det.minAreaPx} step={50} min={0} onChange={(v) => patchDetector({ minAreaPx: v })} />
-              <NumField label="Kernel px" value={det.kernelSizePx} step={1} min={1} onChange={(v) => patchDetector({ kernelSizePx: v })} />
+              <NumField
+                label="Min area"
+                value={det.minAreaPx}
+                step={50}
+                min={0}
+                onChange={(v) => patchDetector({ minAreaPx: v })}
+              />
+              <NumField
+                label="Kernel px"
+                value={det.kernelSizePx}
+                step={1}
+                min={1}
+                onChange={(v) => patchDetector({ kernelSizePx: v })}
+              />
             </div>
           </div>
 
@@ -634,12 +801,12 @@ function VisionPanelComponent({
   )
 }
 
-export const VisionPanel = React.memo(VisionPanelComponent)
+export const VisionPanel = React.memo(React.forwardRef(VisionPanelComponent))
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-md border p-2">
-      <div className="text-muted-foreground truncate text-xs">{label}</div>
+      <div className="truncate text-xs text-muted-foreground">{label}</div>
       <div className="font-mono text-sm font-medium tabular-nums">{value}</div>
     </div>
   )

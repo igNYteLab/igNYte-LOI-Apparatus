@@ -23,6 +23,10 @@ export type TestArchiveMeta = {
   hsiVideoError?: string | null
   frameSource?: "hsi" | "rgb"
   frameSourceVideoFile?: string | null
+  visionMetricsFile?: string | null
+  visionOverlayVideoFile?: string | null
+  visionOverlayVideoError?: string | null
+  visionMetricCount?: number
   framesDirectory?: string
 }
 
