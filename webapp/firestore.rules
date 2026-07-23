@@ -1,0 +1,55 @@
+rules_version = '2';
+
+// =============================================================================
+// Firestore Security Rules — IgNYte user directory
+// =============================================================================
+// These rules enforce the user-management authorization model on the server,
+// independent of the UI. Deploy with:  firebase deploy --only firestore:rules
+//
+// Bootstrapping the first admin: create a document in the `users` collection
+// whose ID is the admin's Auth UID, with { role: "admin", status: "active",
+// email: "<their email>" }. After that, admins can add users from the app.
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    match /users/{uid} {
+      // Admins see the whole directory; a user can read their own profile.
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+
+      // Only admins create or remove directory entries.
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+
+      // Admins may update any field. A user may update only their own profile,
+      // and only lastLoginAt / status (invited -> active) — never their role,
+      // email, or createdBy, and a disabled user cannot self-update at all.
+      allow update: if isAdmin() || (
+        isSignedIn()
+        && request.auth.uid == uid
+        && resource.data.status != 'disabled'
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.status in ['invited', 'active']
+      );
+    }
+
+    // Default deny for everything else. If you add other collections (e.g. for
+    // sensor data), grant them access explicitly here.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
