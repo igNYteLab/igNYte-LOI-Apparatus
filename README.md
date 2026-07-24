@@ -10,11 +10,14 @@ workflows. It includes ESP32-P4 firmware, electronics documentation, validation
 notes, serial control tools, camera-tracking prototypes, and a Next.js dashboard
 for monitoring and recording tests.
 
+![igNYte LOI apparatus isometric render](embedded/images/fpa-apparatus-isometric.png)
+
 ## Repository Layout
 
 ```text
 igNYte-LOI-Apparatus/,
   embedded/   Firmware, hardware files, validation docs, and apparatus tools
+  example/    Example exported test runs and post-processing artifacts
   mechanical/ Mechanical design docs, CAD exports, assembly notes, and BOMs
   webapp/     Next.js operator dashboard and test-monitoring application
 ```
@@ -24,6 +27,7 @@ igNYte-LOI-Apparatus/,
 | Path | Contents |
 | --- | --- |
 | [`embedded/`](embedded/) | Former `IgNYte-FPA` repository. Contains the ESP32-P4 sensor-hub firmware, KiCad hardware files, firmware protocol docs, validation notes, OpenCV prototype, and apparatus helper tools. |
+| [`example/`](example/) | Example exported test runs from the apparatus web app, including run metadata, sensor telemetry, camera videos, exported frames, and vision-tracking outputs. |
 | [`mechanical/`](mechanical/) | Mechanical documentation and future design artifacts for the chamber, frame, sample holder, camera stage, motor mount, assembly process, and mechanical bill of materials. |
 | [`webapp/`](webapp/) | Former `ignyte` repository. Contains the production web dashboard for Web Serial device control, live telemetry, session recording, camera/vision controls, Firebase auth, and user management. |
 
@@ -112,6 +116,24 @@ Create `webapp/.env.local` before running against Firebase-backed features. The
 web app expects `NEXT_PUBLIC_FIREBASE_*` values and optional camera stream URLs;
 see [`webapp/README.md`](webapp/README.md) for the current environment details.
 
+## Example Test Runs
+
+Use [`example/`](example/) for exported sample runs from the full apparatus
+workflow. These examples show the output shape produced by the web app after a
+recorded test, including:
+
+- run metadata and timing
+- firmware sensor telemetry
+- RGB and HSI/source video recordings
+- exported still frames for frame-by-frame analysis
+- flame-tracking overlay video and vision metrics
+- sensor-sample-to-frame associations for easier post-processing
+
+The included Kitchen Towel example,
+[`example/20260724-143958-LOI-1/`](example/20260724-143958-LOI-1/), documents a
+34.3 second test export with 525 sensor samples, 172 exported frames, and 213
+vision metric samples.
+
 ## Monorepo History
 
 This repository was assembled with `git subtree` so that both source histories
@@ -153,6 +175,8 @@ history.
 ## Development Notes
 
 - Keep apparatus firmware and hardware work under `embedded/`.
+- Keep exported demonstration runs and post-processing examples under
+  `example/`.
 - Keep mechanical design files, CAD exports, assembly notes, and mechanical BOMs
   under `mechanical/`.
 - Keep dashboard, auth, database, and browser-side control work under `webapp/`.
