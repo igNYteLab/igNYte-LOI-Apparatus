@@ -13,7 +13,7 @@ for monitoring and recording tests.
 ## Repository Layout
 
 ```text
-igNYte-LOI-Apparatus/
+igNYte-LOI-Apparatus/,
   embedded/   Firmware, hardware files, validation docs, and apparatus tools
   mechanical/ Mechanical design docs, CAD exports, assembly notes, and BOMs
   webapp/     Next.js operator dashboard and test-monitoring application
