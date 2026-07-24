@@ -11,6 +11,8 @@ IgNYte-FPA contains the firmware, hardware files, validation notes, and prototyp
 
 Primary author: Will Andre Pasimio Llaneta [andre-llaneta](https://github.com/andre-llaneta)
 
+![IgNYte-FPA apparatus isometric render](images/fpa-apparatus-isometric.png)
+
 This repository focuses on the apparatus-side system: sensor acquisition, motorized vertical camera-stage control, serial command/telemetry output, hardware bring-up notes, and camera-tracking prototypes. The production IgNYte web application lives in a separate repository:
 
 - IgNYte web app: [ikasturirangan/ignyte](https://github.com/ikasturirangan/ignyte)
@@ -36,6 +38,10 @@ IgNYte-FPA/
     final-validation.md           Final validation checklist and observed results
     futurework.md                 Remaining integration work and handoff decisions
     change-log.md                 Confirmed fixes and design changes
+  images/
+    fpa-apparatus-isometric.png    Full apparatus render
+    motherv1-populated-*.png       Populated motherV1 board reference renders
+    system-block-diagram.svg       System-level block diagram
   .github/workflows/
     firmware-opencv.yml           Firmware and OpenCV prototype CI checks
 ```
