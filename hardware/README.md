@@ -27,6 +27,14 @@ The board is intended to reduce loose wiring during apparatus bring-up by collec
 - TPS62827 buck converter
 - Power distribution for the sensor hub peripherals
 
+## Board Views
+
+The top render shows the bare `motherV1` PCB. The populated views below show the board with the main plug-in modules installed, which is the more useful reference for bring-up, wiring checks, and connector orientation.
+
+![motherV1 populated isometric view](../images/motherv1-populated-isometric.png)
+
+![motherV1 populated top-down view](../images/motherv1-populated-topdown.png)
+
 ## External Boards And Modules
 
 The current board was designed around these external boards/modules and sensor breakouts. Verify exact part numbers against the BOM and physical hardware before ordering replacements.
